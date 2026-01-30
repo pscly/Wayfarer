@@ -45,3 +45,43 @@
 - Backend skeleton: keep `backend/main.py` as stable `uvicorn main:app` target; implement real app in `backend/app/main.py` with router split under `backend/app/api/`.
 - Settings: use `pydantic-settings` with `env_prefix="WAYFARER_"`; default `db_url = sqlite+aiosqlite:///./data/dev.db`.
 - DB baseline: SQLAlchemy 2.0 async engine + sessionmaker in `backend/app/db/session.py`; create engine lazily to avoid import-time side effects.
+- Verification (Windows): if you probe `http://localhost:8000/...` (often resolves to ::1), start uvicorn with `--host ::` to ensure the check succeeds; use `Invoke-WebRequest -TimeoutSec 2` with a small retry loop to avoid hangs.
+
+## 2026-01-30 Task: Ruff F821 forward refs
+- Ruff/Pyflakes can flag F821 for unresolved names inside string forward references (e.g. `Mapped["User"]`) unless the referenced name exists in the module scope.
+- Minimal fix in SQLAlchemy models: add `from typing import TYPE_CHECKING` + `if TYPE_CHECKING: from .user import User` (and peers) so the names exist for type-checking/lint only, avoiding runtime import cycles.
+
+## 2026-01-30 Task: 13
+- Tracks batch endpoint: accept `items: list[Any]` and validate each element with Pydantic inside the handler to avoid a single bad item turning the whole request into a 422.
+- Idempotent insert pattern: PostgreSQL uses `insert(...).on_conflict_do_nothing(index_elements=["user_id","client_point_id"])`; SQLite uses `INSERT OR IGNORE` via `prefix_with("OR IGNORE")`.
+- Tracks query + edits filtering: exclude deleted points with a correlated `NOT EXISTS` against `track_edits` where `type == "DELETE_RANGE"` and `canceled_at IS NULL`.
+- Time serialization: normalize to tz-aware UTC and format with trailing `Z` for API responses.
+
+## 2026-01-30 Task: 15 (Export create endpoint)
+- Implemented `POST /v1/export` in `backend/app/api/export.py` and wired it via `backend/app/api/router.py`.
+- Request schema uses `start`/`end` as `datetime` (ISO8601 input; naive timestamps are treated as UTC) + `format` validated/normalized to `CSV/GPX/GeoJSON/KML`.
+- Defaulting reads from `user.settings` when present (`export_include_weather_default`, `timezone`) with fallbacks `false` and `UTC`.
+
+## 2026-01-30 Task: FastAPI/Starlette downloads (FileResponse vs StreamingResponse)
+- Prefer `FileResponse` when you have a real on-disk file (export artifacts, cached exports). It streams in chunks, sets `Content-Length`/`Last-Modified`/`ETag`, adds `Accept-Ranges: bytes`, and supports HTTP `Range` requests.
+- Prefer `StreamingResponse` when the payload is generated on-the-fly (DB cursor -> CSV rows, incremental zip writing, etc). Ensure the iterator yields incremental chunks and does not build the whole payload (avoid `StringIO().getvalue()`/`BytesIO()` for large exports).
+- `FileResponse(filename=...)` sets `Content-Disposition` for you, including RFC 5987-style `filename*=` for non-ASCII names; for `StreamingResponse`, set `Content-Disposition` manually.
+- Suggested media types:
+  - CSV: `text/csv` (Starlette will append `charset=utf-8` for `text/*`)
+  - GPX: `application/gpx+xml`
+  - GeoJSON: `application/geo+json`
+  - KML: `application/vnd.google-earth.kml+xml`
+- Cleanup temp artifacts: use `BackgroundTasks` (FastAPI) or `BackgroundTask` (Starlette) to delete/close temp files after the response is fully sent.
+- Testing (pytest + httpx): assert `Content-Type`/`Content-Disposition`; Range tests (`Range: bytes=0-9` -> `206` + `Content-Range`; invalid ranges -> `416`); streaming tests should use `client.stream(...)` and iterate chunks.
+
+## 2026-01-30 Task: 15 (Export job lifecycle + worker)
+- Worker lives in `backend/app/tasks/export.py` as Celery task `app.tasks.export.run_export_job_task` (eager-safe via a `_run_coro_sync` thread fallback) and is triggered by `.delay(job_id)` from the export API.
+- `artifact_path` is stored relative in DB using `{user_id}/{job_id}.{ext}`; API resolves the absolute path as `Path(Settings.export_dir) / artifact_path`.
+- Compat `GET /v1/export` streams (200) only when `include_weather=false` AND points_count <= `Settings.sync_threshold_points` (default 50_000); otherwise it creates an async ExportJob and returns 202 `{job_id}`.
+
+## 2026-01-30 Task: 16 (Weather enrichment + cache)
+- Weather cache key is `(geohash_5, hour_time)` where `hour_time` is tz-aware UTC floored to the hour.
+- Use stdlib-only geohash; query Open-Meteo at the geohash cell center to keep caching stable within a cell.
+- Provider 429 is handled with exponential backoff; tests inject/patch sleep so there is no real sleeping.
+- Export integrates enrichment when `include_weather=true` and writes `weather_snapshot_json` into CSV (empty when degraded).
+- On provider failures/timeouts, export completes with job state `PARTIAL` and `EXPORT_WEATHER_DEGRADED` instead of crashing.

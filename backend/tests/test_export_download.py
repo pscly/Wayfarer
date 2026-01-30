@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -100,6 +101,7 @@ def test_export_compat_get_streams_small_no_weather(client: TestClient) -> None:
 
 def test_export_compat_get_include_weather_returns_202_and_downloads(
     client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     email = f"u-{uuid.uuid4().hex}@test.com"
     username = f"u-{uuid.uuid4().hex}"
@@ -107,6 +109,12 @@ def test_export_compat_get_include_weather_returns_202_and_downloads(
     _register(client, email=email, username=username, password=password)
     access = _login_access_token(client, email=email, password=password)
     _upload_one_point(client, access_token=access)
+
+    async def fake_get(self, url: str, params=None, timeout=None):  # noqa: ANN001
+        # Simulate provider timeout; export must still complete as PARTIAL.
+        raise httpx.ReadTimeout("timeout", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
 
     r = client.get(
         "/v1/export?start=2026-01-30T11:59:00Z&end=2026-01-30T12:01:00Z&format=CSV&include_weather=true&timezone=UTC",
@@ -127,6 +135,16 @@ def test_export_compat_get_include_weather_returns_202_and_downloads(
     )
     assert d.status_code == 200, d.text
     assert len(d.content) > 0
+
+    # CSV includes weather_snapshot_json column, but it's empty on timeout degradation.
+    text = d.content.decode("utf-8")
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    assert lines, text
+    header = lines[0].split(",")
+    assert "weather_snapshot_json" in header
+    if len(lines) >= 2:
+        row = lines[1].split(",")
+        assert row[header.index("weather_snapshot_json")] == ""
 
 
 def test_export_compat_get_threshold_fallback_returns_202(

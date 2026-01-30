@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     max_export_points: int = 5_000_000
     sync_threshold_points: int = 50_000
 
+    # Weather (Open-Meteo archive)
+    # Fixed token for acceptance: geohash_precision: 5
+    weather_geohash_precision: int = 5  # geohash_precision: 5
+    open_meteo_archive_base_url: str = "https://archive-api.open-meteo.com/v1/archive"
+    open_meteo_timeout_s: float = 10.0
+    open_meteo_max_retries: int = 5
+    open_meteo_backoff_base_s: float = 0.5
+
     # Auth (JWT)
     jwt_signing_keys_json: str | None = None
     jwt_kid_current: str = "dev-1"

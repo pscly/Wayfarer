@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Coroutine, TypeVar
 from zoneinfo import ZoneInfo
 
+import httpx
 import sqlalchemy as sa
 from sqlalchemy import select
 
@@ -92,9 +93,15 @@ def _csv_bytes(points: list[TrackPoint], tz: dt.tzinfo) -> bytes:
             "altitude",
             "speed",
             "is_dirty",
+            "weather_snapshot_json",
         ]
     )
     for p in points:
+        weather_json = (
+            json.dumps(p.weather_snapshot, sort_keys=True, separators=(",", ":"))
+            if p.weather_snapshot is not None
+            else ""
+        )
         w.writerow(
             [
                 str(p.client_point_id),
@@ -105,6 +112,7 @@ def _csv_bytes(points: list[TrackPoint], tz: dt.tzinfo) -> bytes:
                 p.altitude,
                 p.speed,
                 bool(p.is_dirty),
+                weather_json,
             ]
         )
     return buf.getvalue().encode("utf-8")
@@ -127,6 +135,7 @@ def _geojson_bytes(points: list[TrackPoint], tz: dt.tzinfo) -> bytes:
                     "altitude": p.altitude,
                     "speed": p.speed,
                     "is_dirty": bool(p.is_dirty),
+                    "weather_snapshot": p.weather_snapshot,
                 },
             }
         )
@@ -270,6 +279,27 @@ async def _run_export_job(*, job_id: uuid.UUID) -> dict[str, Any]:
         )
         points = list((await session.execute(points_stmt)).scalars().all())
 
+        degraded_weather = False
+        if job.include_weather and points:
+            from app.services.weather import get_weather_snapshot
+
+            # Reuse one client per job; tests patch httpx (no real network).
+            async with httpx.AsyncClient() as http_client:
+                for p in points:
+                    if p.weather_snapshot is not None:
+                        continue
+                    snapshot, degraded = await get_weather_snapshot(
+                        session=session,
+                        latitude=float(p.latitude),
+                        longitude=float(p.longitude),
+                        recorded_at=p.recorded_at,
+                        http_client=http_client,
+                    )
+                    if snapshot is not None:
+                        p.weather_snapshot = snapshot
+                    if degraded:
+                        degraded_weather = True
+
         tz = _tzinfo_from_name(job.timezone)
         ext = _export_ext(job.format)
         rel_path = f"{job.user_id}/{job.id}.{ext}"
@@ -289,12 +319,10 @@ async def _run_export_job(*, job_id: uuid.UUID) -> dict[str, Any]:
             return {"status": "canceled"}
 
         job.artifact_path = rel_path
-        if job.include_weather:
+        if job.include_weather and degraded_weather:
             job.state = "PARTIAL"
             job.error_code = "EXPORT_WEATHER_DEGRADED"
-            job.error_message = (
-                "Weather enrichment not implemented; exported without weather."
-            )
+            job.error_message = "Weather enrichment failed for some points; exported with missing weather."
         else:
             job.state = "SUCCEEDED"
             job.error_code = None

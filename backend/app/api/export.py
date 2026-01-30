@@ -261,7 +261,7 @@ async def export_compat_get(
     tz = timezone or tz_default
 
     if include_weather:
-        # Weather export is intentionally async (and currently degrades to PARTIAL).
+        # Weather export is intentionally async; provider failures degrade to PARTIAL.
         await _enforce_concurrent_exports_limit(user=user, db=db)
         job = ExportJob(
             user_id=user.id,
