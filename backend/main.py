@@ -1,16 +1,12 @@
+"""Thin entrypoint for `uvicorn main:app`.
+
+`run.bat` starts the backend with: `uv run uvicorn main:app ...` (cwd=backend/).
+Keep this file as a stable import target.
+"""
+
 from __future__ import annotations
 
-from fastapi import FastAPI
+import importlib
 
 
-app = FastAPI(title="Wayfarer API")
-
-
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/readyz")
-def readyz() -> dict[str, str]:
-    return {"status": "ready"}
+app = importlib.import_module("app.main").app
