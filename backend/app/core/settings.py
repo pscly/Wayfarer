@@ -16,6 +16,17 @@ class Settings(BaseSettings):
     # Design default: local async sqlite database.
     db_url: str = "sqlite+aiosqlite:///./data/dev.db"
 
+    # Celery
+    # Default dev behavior: run tasks inline unless explicitly disabled.
+    celery_eager: bool = True
+    redis_url: str | None = None
+
+    # Export
+    export_dir: str = "./data/exports"
+    max_concurrent_exports: int = 2
+    max_export_points: int = 5_000_000
+    sync_threshold_points: int = 50_000
+
     # Auth (JWT)
     jwt_signing_keys_json: str | None = None
     jwt_kid_current: str = "dev-1"

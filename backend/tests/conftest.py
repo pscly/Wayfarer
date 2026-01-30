@@ -23,6 +23,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("WAYFARER_JWT_SIGNING_KEYS_JSON", '{"test-kid":"test-secret"}')
     monkeypatch.setenv("WAYFARER_JWT_KID_CURRENT", "test-kid")
 
+    # Keep export artifacts hermetic under tmp_path.
+    export_dir = tmp_path / "exports"
+    monkeypatch.setenv("WAYFARER_EXPORT_DIR", export_dir.as_posix())
+
     # Cookie/CORS defaults (match plan-supplement dev contract).
     monkeypatch.setenv("WAYFARER_DEV_COOKIE_SECURE", "false")
     monkeypatch.setenv("WAYFARER_CORS_ALLOW_ORIGIN", "http://localhost:3000")

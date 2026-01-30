@@ -15,4 +15,5 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "uvicorn>=0.40.0",
+    "celery>=5.6.2",
 ]
