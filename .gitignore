@@ -18,6 +18,10 @@ __pycache__/
 # Local virtualenvs
 backend/.venv/
 
+# Local runtime data (SQLite dev DB, export artifacts, etc.)
+backend/data/
+!backend/data/.gitkeep
+
 # Node / Next.js
 web/node_modules/
 web/.next/
