@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     # Design default: local async sqlite database.
     db_url: str = "sqlite+aiosqlite:///./data/dev.db"
 
+    # Auth (JWT)
+    jwt_signing_keys_json: str | None = None
+    jwt_kid_current: str = "dev-1"
+
+    # Cookie/CORS (dev defaults from plan-supplement)
+    dev_cookie_secure: bool = False
+    cors_allow_origin: str = "http://localhost:3000"
+    cors_allow_credentials: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:
