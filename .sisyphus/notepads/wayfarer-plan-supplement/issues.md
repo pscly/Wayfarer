@@ -15,3 +15,7 @@
 
 ## 2026-01-30 Task: 6
 - Tooling: `lsp_diagnostics` still cannot run on `.md` (LifeEvent spec + notepad are Markdown); verification is blocked unless a Markdown LSP is configured in oh-my-opencode.
+
+## 2026-01-30 Task: 10
+- Windows networking: `Invoke-WebRequest http://localhost:8000/...` may resolve to IPv6 (::1). If uvicorn binds to IPv4-only (`--host 127.0.0.1`), localhost checks can time out; use `http://127.0.0.1:8000/...` for smoke tests (run.bat currently polls `localhost`).
+- Tooling: `lsp_diagnostics` appears to return stale Ruff `F401` for `backend/main.py` even after code changes; CLI `ruff check backend/main.py` is clean.

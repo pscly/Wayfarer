@@ -40,3 +40,8 @@
 - Web Mapbox 性能分档要“可选策略 + 可验收预算”两件套：分档表显式覆盖 `50K`/`100K`/`1M`，同时保持研究基线（<50K GeoJSON；100K–500K simplify+cluster；1M+ tile-based）。
 - OPT/SLA 标记必须是 literal 且可计数（grep-driven）；SLA 行内同时包含 `P95`/`ms`/`fps`/`MB` 以便后续自动验收。
 - 边界测试要覆盖大规模退化路径：1M+ 禁止单 GeoJSON 全量注入；500K–1M 必须 viewport culling + 分片加载；频繁切换过滤条件不能导致 source/layer 泄漏。
+
+## 2026-01-30 Task: 10
+- Backend skeleton: keep `backend/main.py` as stable `uvicorn main:app` target; implement real app in `backend/app/main.py` with router split under `backend/app/api/`.
+- Settings: use `pydantic-settings` with `env_prefix="WAYFARER_"`; default `db_url = sqlite+aiosqlite:///./data/dev.db`.
+- DB baseline: SQLAlchemy 2.0 async engine + sessionmaker in `backend/app/db/session.py`; create engine lazily to avoid import-time side effects.
