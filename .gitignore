@@ -1,0 +1,31 @@
+# Sisyphus runtime outputs (must be ignored)
+.sisyphus/run/
+.sisyphus/run/jwt-signing-keys.json
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local virtualenvs
+backend/.venv/
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/.turbo/
+
+# Logs
+*.log
+
+# Misc (local artifacts)
+2.5
