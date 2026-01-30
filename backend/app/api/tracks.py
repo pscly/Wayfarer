@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import logging
 import uuid
 from typing import Any
 
@@ -20,9 +21,13 @@ from app.db.session import get_db
 from app.models.track_edit import TrackEdit
 from app.models.track_point import TrackPoint
 from app.models.user import User
+from app.tasks.anti_cheat import audit_track_segment_task
 
 
 router = APIRouter(prefix="/v1/tracks", tags=["tracks"])
+
+
+logger = logging.getLogger(__name__)
 
 
 class TrackPointItemIn(BaseModel):
@@ -163,6 +168,8 @@ async def batch_upload(
     accepted_ids: list[str] = []
     valid_rows: list[dict[str, Any]] = []
     valid_client_ids: list[str] = []
+    batch_start_at: dt.datetime | None = None
+    batch_end_at: dt.datetime | None = None
 
     for raw in payload.items:
         try:
@@ -184,6 +191,10 @@ async def batch_upload(
             continue
 
         recorded_at = _normalize_to_utc(item.recorded_at)
+        if batch_start_at is None or recorded_at < batch_start_at:
+            batch_start_at = recorded_at
+        if batch_end_at is None or recorded_at > batch_end_at:
+            batch_end_at = recorded_at
         valid_rows.append(
             {
                 "user_id": user.id,
@@ -214,6 +225,14 @@ async def batch_upload(
     if not valid_rows:
         return TrackBatchResponse(accepted_ids=[], rejected=rejected)
 
+    # The task args must be JSON-serializable (safe for eager and non-eager).
+    audit_start_at = _isoformat_z(
+        _normalize_to_utc(batch_start_at or valid_rows[0]["recorded_at"])
+    )
+    audit_end_at = _isoformat_z(
+        _normalize_to_utc(batch_end_at or valid_rows[0]["recorded_at"])
+    )
+
     dialect = _dialect_name(db)
     stmt = _idempotent_insert_stmt(dialect=dialect, rows=valid_rows)
 
@@ -221,6 +240,11 @@ async def batch_upload(
     try:
         await db.execute(stmt)
         await db.commit()
+        try:
+            audit_track_segment_task.delay(str(user.id), audit_start_at, audit_end_at)
+        except Exception:
+            # Best-effort: never fail the upload response on audit enqueue.
+            logger.warning("Failed to enqueue audit_track_segment_task", exc_info=True)
         accepted_ids = valid_client_ids
         return TrackBatchResponse(accepted_ids=accepted_ids, rejected=rejected)
     except IntegrityError:
@@ -245,6 +269,11 @@ async def batch_upload(
         accepted_ids.append(client_id)
 
     await db.commit()
+    try:
+        audit_track_segment_task.delay(str(user.id), audit_start_at, audit_end_at)
+    except Exception:
+        # Best-effort: never fail the upload response on audit enqueue.
+        logger.warning("Failed to enqueue audit_track_segment_task", exc_info=True)
     return TrackBatchResponse(accepted_ids=accepted_ids, rejected=rejected)
 
 
