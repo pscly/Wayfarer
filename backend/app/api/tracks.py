@@ -4,7 +4,7 @@ import datetime as dt
 import hashlib
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query, Response
@@ -22,6 +22,7 @@ from app.models.track_edit import TrackEdit
 from app.models.track_point import TrackPoint
 from app.models.user import User
 from app.tasks.anti_cheat import audit_track_segment_task
+from app.tasks.life_event import recompute_life_events_task
 
 
 router = APIRouter(prefix="/v1/tracks", tags=["tracks"])
@@ -245,6 +246,17 @@ async def batch_upload(
         except Exception:
             # Best-effort: never fail the upload response on audit enqueue.
             logger.warning("Failed to enqueue audit_track_segment_task", exc_info=True)
+        try:
+            cast(Any, recompute_life_events_task).delay(
+                str(user.id),
+                audit_start_at,
+                audit_end_at,
+            )
+        except Exception:
+            # Best-effort: never fail the upload response on life-event recompute.
+            logger.warning(
+                "Failed to enqueue recompute_life_events_task", exc_info=True
+            )
         accepted_ids = valid_client_ids
         return TrackBatchResponse(accepted_ids=accepted_ids, rejected=rejected)
     except IntegrityError:
@@ -274,6 +286,15 @@ async def batch_upload(
     except Exception:
         # Best-effort: never fail the upload response on audit enqueue.
         logger.warning("Failed to enqueue audit_track_segment_task", exc_info=True)
+    try:
+        cast(Any, recompute_life_events_task).delay(
+            str(user.id),
+            audit_start_at,
+            audit_end_at,
+        )
+    except Exception:
+        # Best-effort: never fail the upload response on life-event recompute.
+        logger.warning("Failed to enqueue recompute_life_events_task", exc_info=True)
     return TrackBatchResponse(accepted_ids=accepted_ids, rejected=rejected)
 
 

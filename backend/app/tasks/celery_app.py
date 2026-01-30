@@ -16,7 +16,15 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
 
     settings = settings or get_settings()
 
-    app = Celery("wayfarer")
+    # Explicit includes keep task registration predictable for workers.
+    app = Celery(
+        "wayfarer",
+        include=[
+            "app.tasks.anti_cheat",
+            "app.tasks.export",
+            "app.tasks.life_event",
+        ],
+    )
 
     if settings.celery_eager:
         app.conf.update(
