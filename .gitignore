@@ -1,6 +1,7 @@
 # Sisyphus runtime outputs (must be ignored)
 .sisyphus/run/
 .sisyphus/run/jwt-signing-keys.json
+.sisyphus/.tmp/
 
 # Environment files
 .env
@@ -27,9 +28,20 @@ web/node_modules/
 web/.next/
 web/out/
 web/.turbo/
+/web/test-results/
 
 # Logs
 *.log
+
+# Local tooling helpers
+.tools/
+kotlin-lsp.cmd
+/kotlin-lsp.exe
+/%CLONE_DIR%/
+
+# Tool caches / temp (local only)
+/.tmp/
+/tmp/
 
 # Misc (local artifacts)
 2.5

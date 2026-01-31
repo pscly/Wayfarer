@@ -230,9 +230,9 @@
   - 每章包含：参数表、伪代码/状态图、边界测试矩阵、SLA/性能指标
 
 ### Definition of Done
-- [ ] `.sisyphus/deliverables/plan-supplement.md` 包含完整章节与目录（FSM/API/反作弊/Room/LifeEvent/天气/性能）
-- [ ] 所有缺口均有明确阈值/算法/流程图
-- [ ] 包含可执行的验证标准（无需人工确认）
+- [x] `.sisyphus/deliverables/plan-supplement.md` 包含完整章节与目录（FSM/API/反作弊/Room/LifeEvent/天气/性能）
+- [x] 所有缺口均有明确阈值/算法/流程图
+- [x] 包含可执行的验证标准（无需人工确认）
 
 ### Must Have
 - FSM 状态机完整定义（含状态图、采样参数、转换条件）
@@ -1159,7 +1159,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): 集成 Celery 并实现反作弊审计`
 
-- [ ] 15. 后端：导出系统（同步 GET + 异步 Job）
+- [x] 15. 后端：导出系统（同步 GET + 异步 Job）
 
   **What to do**:
   - 保留 GET /v1/export（小数据 + 无天气流式直出）
@@ -1179,7 +1179,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): 实现导出 Job 与多格式导出`
 
-- [ ] 16. 后端：天气回溯与缓存（Open-Meteo）
+- [x] 16. 后端：天气回溯与缓存（Open-Meteo）
 
   **What to do**:
   - weather_cache: (geohash_5, hour_time) 唯一
@@ -1195,7 +1195,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): 天气回溯缓存与导出填充`
 
-- [ ] 17. 后端：LifeEvent 自动标记
+- [x] 17. 后端：LifeEvent 自动标记
 
   **What to do**:
   - 实现停留点检测（distance=200m,time=5min）并生成 life_events
@@ -1211,7 +1211,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): LifeEvent 自动识别与接口`
 
-- [ ] 18. Web：Next.js 14 基础工程 + 认证
+- [x] 18. Web：Next.js 14 基础工程 + 认证
 
   **What to do**:
   - 建立 Next.js 14 App Router 项目，深色模式优先
@@ -1240,7 +1240,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(web): 初始化 Next.js 前端与登录流程`
 
-- [ ] 19. Web：时间轴编辑器 + 轨迹编辑
+- [x] 19. Web：时间轴编辑器 + 轨迹编辑
 
   **What to do**:
   - Timeline UI（缩放/选择区间）
@@ -1257,7 +1257,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(web): 时间轴编辑与轨迹修复工具`
 
-- [ ] 20. Web：导出向导 + 进度展示
+- [x] 20. Web：导出向导 + 进度展示
 
   **What to do**:
   - Export Wizard（include_weather 勾选）
@@ -1273,7 +1273,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(web): 导出向导与任务进度`
 
-- [ ] 21. Android：工程初始化（Compose + 高德地图）
+- [x] 21. Android：工程初始化（Compose + 高德地图）
 
   **What to do**:
   - 新建 Android 项目（Compose + MVVM+Clean）
@@ -1286,13 +1286,13 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
     - 无 Key 时：构建/单测必须仍可通过；运行时显示“缺少 Key”并跳过地图初始化
 
   **Acceptance Criteria**:
-  - [ ] `gradlew.bat test` 退出码 0
-  - [ ] 未提供 Key 时 `gradlew.bat assembleDebug` 仍可通过（避免 CI/开发环境阻塞）
+  - [x] `gradlew.bat test` 退出码 0
+  - [x] 未提供 Key 时 `gradlew.bat assembleDebug` 仍可通过（避免 CI/开发环境阻塞）
 
   **Commit**: YES
   - Message: `feat(android): 初始化 Compose 工程并接入高德地图骨架`
 
-- [ ] 22. Android：前台服务 + 智能采样 FSM + 轨迹采集
+- [x] 22. Android：前台服务 + 智能采样 FSM + 轨迹采集
 
   **What to do**:
   - ForegroundService 采集定位
@@ -1304,12 +1304,12 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## Room Schema & Sync`（本地表字段名与 sync_status 语义）
 
   **Acceptance Criteria**:
-  - [ ] `gradlew.bat test` 通过（FSM 单元测试）
+  - [x] `gradlew.bat test` 通过（FSM 单元测试）
 
   **Commit**: YES
   - Message: `feat(android): 实现前台采集与智能采样 FSM`
 
-- [ ] 23. Android：步数与 Root 增强（开发者模式）
+- [x] 23. Android：步数与 Root 增强（开发者模式）
 
   **What to do**:
   - 采集 step_count/step_delta
@@ -1318,12 +1318,12 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - Raw Sensor Monitor（/dev/input/event*）
 
   **Acceptance Criteria**:
-  - [ ] `gradlew.bat test` 通过（开发者模式逻辑测试）
+  - [x] `gradlew.bat test` 通过（开发者模式逻辑测试）
 
   **Commit**: YES
   - Message: `feat(android): 步数采集与 Root 开发者增强`
 
-- [ ] 24. Android：同步引擎（断网重试 + 部分成功）
+- [x] 24. Android：同步引擎（断网重试 + 部分成功）
 
   **What to do**:
   - 按批上传（100条），gzip json
@@ -1334,12 +1334,12 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## Room Schema & Sync`（sync_queue/retry_policy/部分成功处理）
 
   **Acceptance Criteria**:
-  - [ ] `gradlew.bat test` 通过（回执处理单测）
+  - [x] `gradlew.bat test` 通过（回执处理单测）
 
   **Commit**: YES
   - Message: `feat(android): 实现同步引擎与幂等回执处理`
 
-- [ ] 25. 端到端联调 + 一键启动
+- [x] 25. 端到端联调 + 一键启动
 
   **What to do**:
   - run.bat/stop.bat 打通（本地无 Docker）
@@ -1350,10 +1350,10 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - 可选（不计入验收）：真实 Android 设备联调 smoke（如有设备/Key，可做）
 
   **Acceptance Criteria**:
-  - [ ] `run.bat` 可启动全部服务（backend + web）
-  - [ ] `stop.bat` 可停止全部服务
-  - [ ] backend 测试 + web 测试全部通过
-  - [ ] 端到端自动化验证命令（示例口径，执行者可脚本化但不得改语义）：
+  - [x] `run.bat` 可启动全部服务（backend + web）
+  - [x] `stop.bat` 可停止全部服务
+  - [x] backend 测试 + web 测试全部通过
+  - [x] 端到端自动化验证命令（示例口径，执行者可脚本化但不得改语义）：
     - 获取 token（PowerShell）：注册/登录拿到 access_token
     - 用 token 上传 2 个点：`POST /v1/tracks/batch` 返回 accepted_ids 数量为 2
     - 查询点位：`GET /v1/tracks/query` 返回点数 >= 2
@@ -1466,6 +1466,6 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
 ```
 
 ### Final Checklist
-- [ ] 所有缺口已覆盖
-- [ ] 参数与阈值均为具体数值
-- [ ] 无人工验证步骤
+- [x] 所有缺口已覆盖
+- [x] 参数与阈值均为具体数值
+- [x] 无人工验证步骤
