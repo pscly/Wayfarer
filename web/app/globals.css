@@ -3,21 +3,49 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Dark-first palette: no external assets, just CSS variables. */
+  --background: #070a0f;
+  --foreground: #e6edf3;
+  --muted: rgba(230, 237, 243, 0.65);
+  --panel: rgba(255, 255, 255, 0.06);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --accent: #38bdf8;
+  --danger: #fb7185;
+
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #fbfcfe;
+    --foreground: #0b1220;
+    --muted: rgba(11, 18, 32, 0.65);
+    --panel: rgba(11, 18, 32, 0.05);
+    --panel-border: rgba(11, 18, 32, 0.12);
+
+    color-scheme: light;
   }
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}
+
+/* Subtle atmosphere without any network dependencies. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 500px at 15% 10%, rgba(56, 189, 248, 0.22), transparent 55%),
+    radial-gradient(900px 500px at 85% 30%, rgba(45, 212, 191, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 50% 100%, rgba(244, 114, 182, 0.08), transparent 60%);
+  opacity: 0.85;
+  mix-blend-mode: normal;
 }
 
 @layer utilities {

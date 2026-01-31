@@ -85,3 +85,24 @@
 - Provider 429 is handled with exponential backoff; tests inject/patch sleep so there is no real sleeping.
 - Export integrates enrichment when `include_weather=true` and writes `weather_snapshot_json` into CSV (empty when degraded).
 - On provider failures/timeouts, export completes with job state `PARTIAL` and `EXPORT_WEATHER_DEGRADED` instead of crashing.
+
+## 2026-01-30 Task: 17 (LifeEvent auto STAY + CRUD)
+- Trigger point: `POST /v1/tracks/batch` enqueues `recompute_life_events_task` best-effort after DB commit (mirrors anti-cheat enqueue).
+- Algorithm implementation: `backend/app/services/life_event.py` (`detect_stay_candidates`, default `200m` + `5min`, deterministic anchor-windowing).
+- Task wiring: Celery eager-safe wrapper lives in `backend/app/tasks/life_event.py` (uses `_run_coro_sync` thread fallback inside FastAPI event loop).
+- Dedupe strategy: auto STAY rows use deterministic UUID (uuid5 of `user_id|STAY|start_at|end_at`) and INSERT uses `ON CONFLICT DO NOTHING`/`OR IGNORE`; recompute is insert-only to avoid overwriting user edits.
+
+## 2026-01-31 Task: 19 (Web timeline + edits)
+- Tracks page endpoint aligned to backend contract: `GET /v1/tracks/query` (replaces legacy `GET /v1/tracks`) + `POST /v1/tracks/edits` with `{ type: "DELETE_RANGE", start, end }`.
+- Playwright mocking strategy: `page.route("**/v1/**")` keeps an in-memory `points[]` + `deleteRanges[]`; query returns `{ items: visible }` with delete ranges applied, and delete pushes a range so the next refetch shows a smaller count.
+
+
+## 2026-01-31 Task: 20 Playwright download
+- 官方文档（Node/TS）：https://playwright.dev/docs/downloads + https://playwright.dev/docs/api/class-download + https://playwright.dev/docs/api/class-route#route-fulfill + https://playwright.dev/docs/api/class-page#page-wait-for-event
+- 推荐的下载等待顺序（避免 race）：先 `page.waitForEvent(\'download\')` 再触发点击/导航；常用写法是 `Promise.all([ page.waitForEvent(\'download\'), click ])`。Playwright 自己的 types 注释也明确了 “Start waiting... Note no await” 的模式：https://github.com/microsoft/playwright/blob/97bc385142cfb498a59219442d8032ca2e1d79fe/packages/playwright-core/types/types.d.ts#L19089-L19097
+- 文件落盘：用 `download.saveAs(...)` + `testInfo.outputPath(...)`，避免手写路径/相对路径在 Windows/CI 下不稳定。Playwright 自测示例：https://github.com/microsoft/playwright/blob/97bc385142cfb498a59219442d8032ca2e1d79fe/tests/library/download.spec.ts#L150-L160
+- 纯前端/无后端也能测下载：拦截下载 URL，用 `page.route(..., route => route.fulfill(...))` 直接返回带 `Content-Disposition: attachment` 的响应体；`route.fulfill` 支持 `body: string|Buffer`（可直接送二进制）：https://github.com/microsoft/playwright/blob/97bc385142cfb498a59219442d8032ca2e1d79fe/packages/playwright-core/types/types.d.ts#L21057-L21087
+- 注意事项：
+  - 下载文件默认落在临时目录，浏览器 context 关闭会清理（不要在 `saveAs` 前就 close context）。官方说明见 types 注释：https://github.com/microsoft/playwright/blob/97bc385142cfb498a59219442d8032ca2e1d79fe/packages/playwright-core/types/types.d.ts#L19085-L19087
+  - `download.path()` 会等待下载完成，但在 remote 连接时会抛错；本项目更建议 `saveAs(testInfo.outputPath(...))` 并用 `fs.stat` 断言 size>0：https://github.com/microsoft/playwright/blob/97bc385142cfb498a59219442d8032ca2e1d79fe/packages/playwright-core/types/types.d.ts#L19131-L19138
+  - 如果 `acceptDownloads: false`，下载会进入 failure（需要按需打开）：https://github.com/microsoft/playwright/blob/97bc385142cfb498a59219442d8032ca2e1d79fe/tests/library/download.spec.ts#L94-L108

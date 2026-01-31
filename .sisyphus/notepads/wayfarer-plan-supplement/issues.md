@@ -18,4 +18,13 @@
 
 ## 2026-01-30 Task: 10
 - Windows networking: `Invoke-WebRequest http://localhost:8000/...` may resolve to IPv6 (::1). If uvicorn binds to IPv4-only (`--host 127.0.0.1`), localhost checks can time out; use `http://127.0.0.1:8000/...` for smoke tests (run.bat currently polls `localhost`).
+- Fix chosen: start uvicorn with `--host ::` (IPv6 / dual-stack when supported) so `http://localhost:8000/healthz` works reliably even when `localhost` resolves to `::1`.
 - Tooling: `lsp_diagnostics` appears to return stale Ruff `F401` for `backend/main.py` even after code changes; CLI `ruff check backend/main.py` is clean.
+- Tooling gotcha: the CLI "bash" runner here behaves like cmd.exe; use PowerShell (`Start-Process`, `Start-Sleep`, `Stop-Process`) for background server + health-check verification instead of `&/sleep/kill`.
+
+## 2026-01-30 Task: 11/12/13
+- Repo hygiene gotcha: critical backend files for Tasks 11/12 (alembic/models/auth/tests) existed locally but were not yet committed; this breaks clean checkouts if not fixed.
+
+## 2026-01-30 Task: 15 worker/settings
+- Retention not implemented in backend export: spec mentions metadata 7d and artifact 24h, but ExportJob has no expires fields and there is no periodic cleanup task; only best-effort unlink on cancel.
+- Celery eager is default (run.bat sets WAYFARER_CELERY_EAGER=1 when unset): export jobs run inline in dev/test even though the API returns 202.

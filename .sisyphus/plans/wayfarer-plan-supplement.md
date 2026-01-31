@@ -1016,7 +1016,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `chore: 初始化项目骨架与脚本`
 
-- [ ] 10. 后端：FastAPI 基础工程（uv + settings + health）
+- [x] 10. 后端：FastAPI 基础工程（uv + settings + health）
 
   **What to do**:
   - 在 `backend/` 创建 FastAPI 应用骨架（app/main.py + 路由拆分）
@@ -1039,7 +1039,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): 初始化 FastAPI 服务与健康检查`
 
-- [ ] 11. 后端：数据库模型与迁移（PostGIS + Alembic）
+- [x] 11. 后端：数据库模型与迁移（PostGIS + Alembic）
 
   **What to do**:
   - 建立 SQLAlchemy 2.0 模型：users / track_points / life_events / weather_cache / refresh_tokens / export_jobs
@@ -1084,7 +1084,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): 建立核心数据模型与迁移`
 
-- [ ] 12. 后端：认证系统（JWT + refresh rotation + CSRF）
+- [x] 12. 后端：认证系统（JWT + refresh rotation + CSRF）
 
   **What to do**:
   - 实现：/v1/auth/register /v1/auth/login /v1/auth/refresh /v1/users/me
@@ -1110,7 +1110,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): 实现 JWT 认证与 refresh rotation`
 
-- [ ] 13. 后端：轨迹上传 + 查询/编辑（batch/query/edits）
+- [x] 13. 后端：轨迹上传 + 查询/编辑（batch/query/edits）
 
   **What to do**:
   - 校验每条点位：client_point_id/recorded_at/latitude/longitude/accuracy
@@ -1137,7 +1137,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   **Commit**: YES
   - Message: `feat(backend): 支持轨迹批量上传与幂等回执`
 
-- [ ] 14. 后端：Celery/Redis + Anti-Cheat 审计任务
+- [x] 14. 后端：Celery/Redis + Anti-Cheat 审计任务
 
   **What to do**:
   - 开发默认：`WAYFARER_CELERY_EAGER=1`（不依赖本机 redis/worker），任务在同进程同步执行
