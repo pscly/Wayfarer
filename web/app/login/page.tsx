@@ -5,6 +5,12 @@ import { ApiError } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody } from "@/components/ui/Card";
+import { FieldHint, FieldLabel } from "@/components/ui/Field";
+import { Input } from "@/components/ui/Input";
+import { Notice } from "@/components/ui/Notice";
+
 export default function LoginPage() {
   const router = useRouter();
   const { accessToken, isHydrating, login } = useAuth();
@@ -28,11 +34,11 @@ export default function LoginPage() {
       router.replace("/tracks");
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.bodyText || `Login failed (${err.status})`);
+        setError(err.bodyText || `登录失败（${err.status}）`);
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError("Login failed");
+        setError("登录失败");
       }
     } finally {
       setSubmitting(false);
@@ -41,67 +47,65 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto w-full max-w-md">
-      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8">
-        <h1 className="text-2xl font-semibold text-white">Sign in</h1>
-        <p className="mt-2 text-sm text-white/70">
-          Use your backend credentials. Refresh uses the
+      <Card>
+        <CardBody className="p-8">
+          <h1 className="text-2xl font-semibold text-foreground">登录</h1>
+          <p className="mt-2 text-sm text-foreground/70">
+            使用后端账号密码登录。刷新依赖
           <code className="mx-1 rounded bg-white/10 px-1 py-0.5 text-xs">
             wf_csrf
           </code>
-          cookie.
-        </p>
+            cookie。
+          </p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <label className="block">
-            <span className="text-xs font-medium tracking-wide text-white/70">
-              Email
-            </span>
-            <input
+            <FieldLabel>邮箱</FieldLabel>
+            <Input
               data-testid="login-email"
               type="email"
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white placeholder:text-white/35 focus:border-white/20 focus:outline-none"
               placeholder="you@example.com"
               required
             />
+            <FieldHint className="mt-2">
+              用于后端登录；示例：you@example.com
+            </FieldHint>
           </label>
 
           <label className="block">
-            <span className="text-xs font-medium tracking-wide text-white/70">
-              Password
-            </span>
-            <input
+            <FieldLabel>密码</FieldLabel>
+            <Input
               data-testid="login-password"
               type="password"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white placeholder:text-white/35 focus:border-white/20 focus:outline-none"
               required
             />
+            <FieldHint className="mt-2">大小写敏感。</FieldHint>
           </label>
 
           {error ? (
-            <div
-              data-testid="login-error"
-              className="rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"
-            >
+            <Notice data-testid="login-error" variant="error">
               {error}
-            </div>
+            </Notice>
           ) : null}
 
-          <button
+          <Button
             data-testid="login-submit"
             type="submit"
             disabled={submitting}
-            className="w-full rounded-xl bg-[color:var(--accent)] px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
+            className="w-full rounded-xl"
+            variant="primary"
           >
-            {submitting ? "Signing in..." : "Sign in"}
-          </button>
+            {submitting ? "登录中…" : "登录"}
+          </Button>
         </form>
-      </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }
