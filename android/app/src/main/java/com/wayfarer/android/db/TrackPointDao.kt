@@ -16,6 +16,16 @@ interface TrackPointDao {
     @Query("SELECT COUNT(*) FROM track_points_local WHERE sync_status != 3")
     fun countPendingSync(): Long
 
+    @Query(
+        "SELECT * FROM track_points_local " +
+            "WHERE recorded_at >= :startUtc AND recorded_at <= :endUtc " +
+            "ORDER BY recorded_at ASC LIMIT :limit",
+    )
+    fun range(startUtc: String, endUtc: String, limit: Int): List<TrackPointEntity>
+
+    @Query("DELETE FROM track_points_local")
+    fun deleteAll(): Int
+
     @Query("SELECT * FROM track_points_local ORDER BY recorded_at DESC LIMIT :limit")
     fun latest(limit: Int): List<TrackPointEntity>
 }

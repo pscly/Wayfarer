@@ -52,4 +52,53 @@ class TrackPointRepository(
             }
         }
     }
+
+    fun latestPointsAsync(
+        limit: Int,
+        onResult: (List<TrackPointEntity>) -> Unit,
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                dao.latest(limit)
+            }
+
+            mainHandler.post {
+                result.fold(onResult, onError)
+            }
+        }
+    }
+
+    fun rangePointsAsync(
+        startUtc: String,
+        endUtc: String,
+        limit: Int,
+        onResult: (List<TrackPointEntity>) -> Unit,
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                dao.range(startUtc = startUtc, endUtc = endUtc, limit = limit)
+            }
+
+            mainHandler.post {
+                result.fold(onResult, onError)
+            }
+        }
+    }
+
+    fun clearAllAsync(
+        onDone: () -> Unit,
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                dao.deleteAll()
+            }
+
+            mainHandler.post {
+                result.fold({ onDone() }, onError)
+            }
+        }
+    }
 }
