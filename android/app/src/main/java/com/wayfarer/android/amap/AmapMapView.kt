@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -37,12 +38,12 @@ fun AmapMapView(
             Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Column {
                     Text(
-                        text = "AMap API key missing",
+                        text = stringResource(com.wayfarer.android.R.string.amap_key_missing_title),
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        text = "Set WAYFARER_AMAP_API_KEY via -P, env var, or android/local.properties.",
+                        text = stringResource(com.wayfarer.android.R.string.amap_key_missing_short),
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }

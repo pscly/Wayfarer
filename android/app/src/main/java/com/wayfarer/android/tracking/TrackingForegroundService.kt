@@ -87,11 +87,13 @@ class TrackingForegroundService : Service(), LocationListener {
     override fun onDestroy() {
         stopActivityUpdates()
         stopLocationUpdates()
+        TrackingStatusStore.markStopped(this)
         super.onDestroy()
     }
 
     private fun startTracking() {
         isCapturing = true
+        TrackingStatusStore.markStarted(this)
         startForeground(NOTIFICATION_ID, buildNotification())
 
         // Best-effort: use Activity Recognition if runtime permission is present.
@@ -106,6 +108,7 @@ class TrackingForegroundService : Service(), LocationListener {
 
     private fun stopTracking() {
         isCapturing = false
+        TrackingStatusStore.markStopped(this)
         stopActivityUpdates()
         stopLocationUpdates()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -213,7 +216,7 @@ class TrackingForegroundService : Service(), LocationListener {
 
         val channel = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,
-            "Wayfarer Tracking",
+            getString(R.string.notif_channel_tracking),
             NotificationManager.IMPORTANCE_LOW,
         )
         nm.createNotificationChannel(channel)
@@ -221,8 +224,8 @@ class TrackingForegroundService : Service(), LocationListener {
 
     private fun buildNotification(): Notification {
         return Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Wayfarer")
-            .setContentText("Tracking is running")
+            .setContentTitle(getString(R.string.notif_tracking_title))
+            .setContentText(getString(R.string.notif_tracking_text))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .build()

@@ -1,6 +1,8 @@
 package com.wayfarer.android.tracking
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.db.WayfarerDatabaseProvider
 import java.util.concurrent.Executor
@@ -13,11 +15,40 @@ class TrackPointRepository(
     private val dao = WayfarerDatabaseProvider.get(appContext).trackPointDao()
 
     private val ioExecutor: Executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    data class TrackPointStats(
+        val totalCount: Long,
+        val pendingSyncCount: Long,
+        val latestRecordedAtUtc: String?,
+    )
 
     fun insertAsync(entity: TrackPointEntity) {
         ioExecutor.execute {
             runCatching {
                 dao.insert(entity)
+            }
+        }
+    }
+
+    fun statsAsync(
+        onResult: (TrackPointStats) -> Unit,
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                val total = dao.countAll()
+                val pending = dao.countPendingSync()
+                val latest = dao.latest(1).firstOrNull()?.recordedAtUtc
+                TrackPointStats(
+                    totalCount = total,
+                    pendingSyncCount = pending,
+                    latestRecordedAtUtc = latest,
+                )
+            }
+
+            mainHandler.post {
+                result.fold(onResult, onError)
             }
         }
     }

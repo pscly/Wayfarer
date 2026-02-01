@@ -2,46 +2,49 @@ package com.wayfarer.android.ui
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
+import android.location.LocationManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
 import com.wayfarer.android.BuildConfig
 import com.wayfarer.android.amap.AmapApiKey
 import com.wayfarer.android.amap.AmapMapView
-import com.wayfarer.android.dev.DevInputMonitor
-import com.wayfarer.android.dev.DeveloperModeGate
-import com.wayfarer.android.dev.DeviceIdleWhitelist
-import com.wayfarer.android.steps.StepDeltaCalculator
 import com.wayfarer.android.tracking.TrackingServiceController
+import com.wayfarer.android.tracking.TrackPointRepository
+import com.wayfarer.android.tracking.TrackingStatusStore
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun TracksScreen() {
@@ -49,20 +52,42 @@ fun TracksScreen() {
     val amapKeyRaw = remember { AmapApiKey.readFromManifest(context) }
     val amapKeyPresent = remember(amapKeyRaw) { AmapApiKey.isPresent(amapKeyRaw) }
 
-    var isTracking by rememberSaveable { mutableStateOf(false) }
+    var isTracking by rememberSaveable { mutableStateOf(TrackingStatusStore.readIsTracking(context)) }
 
-    val developerModeGate = remember { DeveloperModeGate() }
-    var developerModeEnabled by rememberSaveable { mutableStateOf(false) }
+    val locationGranted = hasLocationPermission(context)
+    val activityGranted =
+        context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) ==
+            PackageManager.PERMISSION_GRANTED
+    val gpsEnabled = isGpsEnabled(context)
 
-    val stepCalc = remember { StepDeltaCalculator() }
-    var stepSensorStatus by remember { mutableStateOf("IDLE") }
-    var stepCount by remember { mutableStateOf<Long?>(null) }
-    var stepDelta by remember { mutableStateOf<Long?>(null) }
+    val repository = remember { TrackPointRepository(context) }
+    var statsLoading by remember { mutableStateOf(false) }
+    var statsError by remember { mutableStateOf<String?>(null) }
+    var stats by remember { mutableStateOf<TrackPointRepository.TrackPointStats?>(null) }
 
-    val inputMonitor = remember { DevInputMonitor() }
-    var inputStatus by remember { mutableStateOf(inputMonitor.status()) }
+    fun refreshStats() {
+        statsLoading = true
+        statsError = null
+        repository.statsAsync(
+            onResult = {
+                stats = it
+                statsLoading = false
+            },
+            onError = {
+                statsError = it.message ?: it.toString()
+                statsLoading = false
+            },
+        )
+    }
 
-    var rootStatus by remember { mutableStateOf("IDLE") }
+    LaunchedEffect(Unit) {
+        refreshStats()
+    }
+
+    LaunchedEffect(isTracking) {
+        // Refresh after start/stop to show new points quickly.
+        refreshStats()
+    }
 
     val requiredPermissions = remember {
         arrayOf(
@@ -75,239 +100,262 @@ fun TracksScreen() {
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { result: Map<String, Boolean> ->
-        val locationGranted =
+        val permissionLocationGranted =
             (result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true) ||
                 (result[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true)
 
-        if (locationGranted) {
+        if (permissionLocationGranted) {
             TrackingServiceController.start(context)
+            TrackingStatusStore.markStarted(context)
             isTracking = true
         }
     }
 
-    val vm: TracksViewModel = viewModel(
-        factory = viewModelFactory {
-            initializer {
-                TracksViewModel(
-                    amapKeyRaw = amapKeyRaw,
-                    amapKeyPresent = amapKeyPresent,
-                )
-            }
-        },
-    )
-
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text(
-                text = "Wayfarer",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier
-                    .clickable {
-                        developerModeEnabled = developerModeGate.tap()
-                    },
-            )
-
-            // Verification hint: benchmark APK should show https://waf.pscly.cc here by default.
-            Text(
-                text = "api_base_url: ${BuildConfig.WAYFARER_API_BASE_URL}",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-
-            if (!developerModeEnabled) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Tap title 7 times for developer tools",
+                    text = stringResource(com.wayfarer.android.R.string.tracking_subtitle),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = stringResource(
+                        com.wayfarer.android.R.string.tracking_api_base_url,
+                        BuildConfig.WAYFARER_API_BASE_URL,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp),
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
 
-            if (developerModeEnabled) {
-                Spacer(modifier = Modifier.height(12.dp))
+        OutlinedCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Text(
-                    text = "Developer tools",
+                    text = stringResource(com.wayfarer.android.R.string.tracking_status_card_title),
                     style = MaterialTheme.typography.titleMedium,
                 )
 
-                // Best-effort step counter listener.
-                DisposableEffect(Unit) {
-                    stepCalc.reset()
-                    stepCount = null
-                    stepDelta = null
-
-                    val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-                    if (sensorManager == null) {
-                        stepSensorStatus = "ERR: SensorManager missing"
-                        return@DisposableEffect onDispose { }
-                    }
-
-                    val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-                    if (sensor == null) {
-                        stepSensorStatus = "ERR: step counter sensor missing"
-                        return@DisposableEffect onDispose { }
-                    }
-
-                    val listener =
-                        object : SensorEventListener {
-                            override fun onSensorChanged(event: SensorEvent?) {
-                                val value = event?.values?.firstOrNull() ?: return
-                                val out = stepCalc.onSample(value)
-                                stepCount = out.stepCount
-                                stepDelta = out.stepDelta
-                                stepSensorStatus = "OK"
-                            }
-
-                            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-                                // No-op for dev display.
-                            }
-                        }
-
-                    val registered =
-                        runCatching {
-                            sensorManager.registerListener(
-                                listener,
-                                sensor,
-                                SensorManager.SENSOR_DELAY_NORMAL,
-                            )
-                        }.getOrDefault(false)
-
-                    stepSensorStatus = if (registered) "OK: listening" else "ERR: failed to register"
-
-                    onDispose {
-                        runCatching { sensorManager.unregisterListener(listener) }
-                    }
-                }
-
-                Text(
-                    text = "step_sensor: $stepSensorStatus",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Text(
-                    text = "step_count: ${stepCount?.toString() ?: "(unknown)"}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = "step_delta: ${stepDelta?.toString() ?: "(unknown)"}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Row {
-                    Button(
-                        onClick = {
-                            rootStatus = DeviceIdleWhitelist.tryWhitelist(context.packageName)
-                        },
-                    ) {
-                        Text("Whitelist (root)")
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Button(
-                        onClick = {
-                            inputStatus = inputMonitor.probeOnce()
-                        },
-                    ) {
-                        Text("Probe /dev/input")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Row {
-                    Button(
-                        onClick = {
-                            inputStatus = inputMonitor.start()
-                        },
-                    ) {
-                        Text("Start /dev/input monitor")
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Button(
-                        onClick = {
-                            inputStatus = inputMonitor.stop()
-                        },
-                    ) {
-                        Text("Stop /dev/input monitor")
-                    }
-                }
-
-                Text(
-                    text = "root: $rootStatus",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Text(
-                    text = "input: $inputStatus",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-            } else {
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            Row {
-                Button(
-                    onClick = {
-                        if (hasLocationPermission(context)) {
-                            TrackingServiceController.start(context)
-                            isTracking = true
+                StatusRow(
+                    label = stringResource(com.wayfarer.android.R.string.tracking_status_service),
+                    value =
+                        if (isTracking) {
+                            stringResource(com.wayfarer.android.R.string.tracking_service_running)
                         } else {
-                            permissionLauncher.launch(requiredPermissions)
-                        }
-                    },
-                    enabled = !isTracking,
-                ) {
-                    Text("Start tracking")
-                }
+                            stringResource(com.wayfarer.android.R.string.tracking_service_stopped)
+                        },
+                    valueTone = if (isTracking) StatusTone.Good else StatusTone.Muted,
+                )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                StatusRow(
+                    label = stringResource(com.wayfarer.android.R.string.tracking_status_location_permission),
+                    value =
+                        if (locationGranted) {
+                            stringResource(com.wayfarer.android.R.string.status_granted)
+                        } else {
+                            stringResource(com.wayfarer.android.R.string.status_denied)
+                        },
+                    valueTone = if (locationGranted) StatusTone.Good else StatusTone.Bad,
+                )
 
-                Button(
-                    onClick = {
-                        TrackingServiceController.stop(context)
-                        isTracking = false
-                    },
-                    enabled = isTracking,
-                ) {
-                    Text("Stop tracking")
-                }
+                StatusRow(
+                    label = stringResource(com.wayfarer.android.R.string.tracking_status_activity_permission),
+                    value =
+                        if (activityGranted) {
+                            stringResource(com.wayfarer.android.R.string.status_granted)
+                        } else {
+                            stringResource(com.wayfarer.android.R.string.status_denied)
+                        },
+                    valueTone = if (activityGranted) StatusTone.Good else StatusTone.Bad,
+                )
+
+                StatusRow(
+                    label = stringResource(com.wayfarer.android.R.string.tracking_status_gps),
+                    value =
+                        if (gpsEnabled) {
+                            stringResource(com.wayfarer.android.R.string.status_enabled)
+                        } else {
+                            stringResource(com.wayfarer.android.R.string.status_disabled)
+                        },
+                    valueTone = if (gpsEnabled) StatusTone.Good else StatusTone.Bad,
+                )
             }
+        }
 
-            if (!vm.uiState.amapKeyPresent) {
-                Column(modifier = Modifier.fillMaxSize().padding(top = 16.dp)) {
+        OutlinedCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     Text(
-                        text = "AMap API key missing",
-                        style = MaterialTheme.typography.headlineMedium,
+                        text = stringResource(com.wayfarer.android.R.string.track_stats_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Button(onClick = { refreshStats() }) {
+                        Text(stringResource(com.wayfarer.android.R.string.track_stats_refresh))
+                    }
+                }
+
+                if (statsLoading) {
+                    Text(
+                        text = stringResource(com.wayfarer.android.R.string.track_stats_loading),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (statsError != null) {
+                    Text(
+                        text = statsError ?: "",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    Text(
-                        text =
-                            "Set WAYFARER_AMAP_API_KEY via:\n" +
-                                "1) Gradle property: -PWAYFARER_AMAP_API_KEY=...\n" +
-                                "2) Environment variable: WAYFARER_AMAP_API_KEY\n" +
-                                "3) android/local.properties (local-only; do not commit)",
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        text =
-                            if (vm.uiState.amapKeyRaw.isNullOrBlank()) {
-                                "Manifest meta-data com.amap.api.v2.apikey is missing/blank."
+                } else {
+                    val resolved = stats
+                    if (resolved == null || resolved.totalCount <= 0L) {
+                        Text(
+                            text = stringResource(com.wayfarer.android.R.string.track_stats_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        StatusRow(
+                            label = stringResource(com.wayfarer.android.R.string.track_stats_total),
+                            value = resolved.totalCount.toString(),
+                            valueTone = StatusTone.Muted,
+                        )
+                        StatusRow(
+                            label = stringResource(com.wayfarer.android.R.string.track_stats_pending_sync),
+                            value = resolved.pendingSyncCount.toString(),
+                            valueTone = if (resolved.pendingSyncCount == 0L) StatusTone.Good else StatusTone.Muted,
+                        )
+                        StatusRow(
+                            label = stringResource(com.wayfarer.android.R.string.track_stats_latest),
+                            value = formatRecordedAt(resolved.latestRecordedAtUtc),
+                            valueTone = StatusTone.Muted,
+                        )
+                    }
+                }
+            }
+        }
+
+        OutlinedCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = if (isTracking) {
+                        stringResource(com.wayfarer.android.R.string.tracking_status_tracking)
+                    } else {
+                        stringResource(com.wayfarer.android.R.string.tracking_status_idle)
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = stringResource(com.wayfarer.android.R.string.tracking_permission_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row {
+                    Button(
+                        onClick = {
+                            if (hasLocationPermission(context)) {
+                                TrackingServiceController.start(context)
+                                TrackingStatusStore.markStarted(context)
+                                isTracking = true
                             } else {
-                                "Manifest meta-data com.amap.api.v2.apikey is set but looks invalid (placeholder/sentinel)."
+                                permissionLauncher.launch(requiredPermissions)
+                            }
+                        },
+                        enabled = !isTracking,
+                    ) {
+                        Text(
+                            text = if (hasLocationPermission(context)) {
+                                stringResource(com.wayfarer.android.R.string.tracking_start)
+                            } else {
+                                stringResource(com.wayfarer.android.R.string.tracking_request_permission)
                             },
-                        modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    FilledTonalButton(
+                        onClick = {
+                            TrackingServiceController.stop(context)
+                            TrackingStatusStore.markStopped(context)
+                            isTracking = false
+                        },
+                        enabled = isTracking,
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.tracking_stop))
+                    }
+                }
+            }
+        }
+
+        if (!amapKeyPresent) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = stringResource(com.wayfarer.android.R.string.amap_key_missing_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(com.wayfarer.android.R.string.amap_key_missing_setup),
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (amapKeyRaw.isNullOrBlank()) {
+                            stringResource(com.wayfarer.android.R.string.amap_key_missing_manifest_blank)
+                        } else {
+                            stringResource(com.wayfarer.android.R.string.amap_key_missing_manifest_invalid)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            } else {
-                Box(modifier = Modifier.fillMaxSize().padding(top = 16.dp)) {
+            }
+        } else {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(24.dp),
+            ) {
+                Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
                     AmapMapView(modifier = Modifier.fillMaxSize())
                 }
             }
+        }
+
+        if (amapKeyPresent) {
+            Spacer(modifier = Modifier.height(4.dp))
+        } else {
+            // Keep layout stable when map is absent.
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }
@@ -317,4 +365,55 @@ private fun hasLocationPermission(context: Context): Boolean {
         PackageManager.PERMISSION_GRANTED ||
         context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
+}
+
+private val RECORDED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+
+private fun formatRecordedAt(value: String?): String {
+    if (value.isNullOrBlank()) return "-"
+    return runCatching {
+        val instant = Instant.parse(value)
+        val zdt = ZonedDateTime.ofInstant(instant, ZoneId.systemDefault())
+        RECORDED_AT_FORMAT.format(zdt)
+    }.getOrDefault(value)
+}
+
+private enum class StatusTone {
+    Good,
+    Bad,
+    Muted,
+}
+
+@Composable
+private fun StatusRow(label: String, value: String, valueTone: StatusTone) {
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val valueColor =
+        when (valueTone) {
+            StatusTone.Good -> MaterialTheme.colorScheme.primary
+            StatusTone.Bad -> MaterialTheme.colorScheme.error
+            StatusTone.Muted -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = labelColor,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = valueColor,
+        )
+    }
+}
+
+private fun isGpsEnabled(context: Context): Boolean {
+    val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+    return runCatching {
+        lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }.getOrDefault(false)
 }
