@@ -31,14 +31,17 @@ target_metadata = Base.metadata
 
 
 def _make_sync_url(url: str) -> str:
-    """Convert runtime async DB URLs into sync URLs for Alembic."""
+    """将运行时的异步 DB URL 转换为 Alembic 可用的同步 URL。"""
 
     u = sa.engine.make_url(url)
     if u.drivername == "sqlite+aiosqlite":
         u = u.set(drivername="sqlite")
     elif u.drivername == "postgresql+asyncpg":
         u = u.set(drivername="postgresql+psycopg")
-    return str(u)
+    # 重要：
+    # SQLAlchemy 的 URL 在 str() 时会默认把密码掩码成 "***"，
+    # 但 Alembic 需要真实连接串才能连上数据库，因此这里必须关闭掩码。
+    return u.render_as_string(hide_password=False)
 
 
 def get_db_url() -> str:
