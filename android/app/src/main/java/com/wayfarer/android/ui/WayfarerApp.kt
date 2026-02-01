@@ -1,7 +1,9 @@
 package com.wayfarer.android.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,18 +23,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
 
 private enum class AppTab {
-    TRACKS,
+    RECORDS,
+    MAP,
+    STATS,
     SETTINGS,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WayfarerApp() {
-    var tab by rememberSaveable { androidx.compose.runtime.mutableStateOf(AppTab.TRACKS) }
+    var tab by rememberSaveable { androidx.compose.runtime.mutableStateOf(AppTab.RECORDS) }
 
     val title = stringResource(
         when (tab) {
-            AppTab.TRACKS -> com.wayfarer.android.R.string.tracking_title
+            AppTab.RECORDS -> com.wayfarer.android.R.string.records_title
+            AppTab.MAP -> com.wayfarer.android.R.string.map_title
+            AppTab.STATS -> com.wayfarer.android.R.string.stats_title
             AppTab.SETTINGS -> com.wayfarer.android.R.string.tab_settings
         },
     )
@@ -53,10 +59,22 @@ fun WayfarerApp() {
         bottomBar = {
             NavigationBar(tonalElevation = 0.dp) {
                 NavigationBarItem(
-                    selected = tab == AppTab.TRACKS,
-                    onClick = { tab = AppTab.TRACKS },
+                    selected = tab == AppTab.RECORDS,
+                    onClick = { tab = AppTab.RECORDS },
                     icon = { Icon(Icons.Rounded.LocationOn, contentDescription = null) },
                     label = { Text(stringResource(com.wayfarer.android.R.string.tab_tracks)) },
+                )
+                NavigationBarItem(
+                    selected = tab == AppTab.MAP,
+                    onClick = { tab = AppTab.MAP },
+                    icon = { Icon(Icons.Rounded.Map, contentDescription = null) },
+                    label = { Text(stringResource(com.wayfarer.android.R.string.tab_map)) },
+                )
+                NavigationBarItem(
+                    selected = tab == AppTab.STATS,
+                    onClick = { tab = AppTab.STATS },
+                    icon = { Icon(Icons.Rounded.BarChart, contentDescription = null) },
+                    label = { Text(stringResource(com.wayfarer.android.R.string.tab_stats)) },
                 )
                 NavigationBarItem(
                     selected = tab == AppTab.SETTINGS,
@@ -68,10 +86,22 @@ fun WayfarerApp() {
         },
     ) { paddingValues ->
         when (tab) {
-            AppTab.TRACKS -> androidx.compose.foundation.layout.Box(
+            AppTab.RECORDS -> androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier.padding(paddingValues),
             ) {
-                TracksScreen()
+                RecordsScreen()
+            }
+
+            AppTab.MAP -> androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.padding(paddingValues),
+            ) {
+                MapScreen()
+            }
+
+            AppTab.STATS -> androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.padding(paddingValues),
+            ) {
+                StatsScreen()
             }
 
             AppTab.SETTINGS -> androidx.compose.foundation.layout.Box(
