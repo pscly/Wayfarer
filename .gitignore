@@ -23,6 +23,9 @@ backend/.venv/
 backend/data/
 !backend/data/.gitkeep
 
+# Docker runtime data
+data/
+
 # Node / Next.js
 web/node_modules/
 web/.next/

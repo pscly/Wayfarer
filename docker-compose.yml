@@ -1,0 +1,38 @@
+services:
+  wayfarer-backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: wayfarer-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data/backend:/app/backend/data
+    ports:
+      # 仅本机可访问，给 Nginx 反代使用
+      - "127.0.0.1:18000:8000"
+
+  wayfarer-web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    container_name: wayfarer-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      # 仅本机可访问，给 Nginx 反代使用
+      - "127.0.0.1:13000:3000"
+    depends_on:
+      wayfarer-backend:
+        condition: service_healthy
+

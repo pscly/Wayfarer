@@ -1,0 +1,30 @@
+.git
+.gitignore
+
+.env
+.env.*
+
+.serena
+.sisyphus
+docs
+android
+
+# Local/runtime artifacts
+data
+tmp
+.tmp
+
+# Python
+**/__pycache__
+**/*.py[cod]
+backend/.venv
+backend/data
+
+# Node / Next.js
+node_modules
+web/node_modules
+web/.next
+web/out
+web/.turbo
+web/test-results
+
