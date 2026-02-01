@@ -1,27 +1,35 @@
 package com.wayfarer.android.ui
 
 import android.content.Context
+import android.content.Intent
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.location.LocationManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +48,7 @@ import com.wayfarer.android.dev.DevInputMonitor
 import com.wayfarer.android.dev.DeviceIdleWhitelist
 import com.wayfarer.android.dev.DeveloperModeGate
 import com.wayfarer.android.steps.StepDeltaCalculator
+import com.wayfarer.android.tracking.TrackPointRepository
 
 @Composable
 fun SettingsScreen() {
@@ -49,6 +58,34 @@ fun SettingsScreen() {
     val developerModeGate = remember { DeveloperModeGate() }
     var developerModeEnabled by rememberSaveable { mutableStateOf(false) }
 
+    val repository = remember { TrackPointRepository(context) }
+    var statsLoading by remember { mutableStateOf(false) }
+    var statsError by remember { mutableStateOf<String?>(null) }
+    var stats by remember { mutableStateOf<TrackPointRepository.TrackPointStats?>(null) }
+
+    var showClearDialog by rememberSaveable { mutableStateOf(false) }
+
+    fun refreshStats() {
+        statsLoading = true
+        statsError = null
+        repository.statsAsync(
+            onResult = {
+                stats = it
+                statsLoading = false
+            },
+            onError = {
+                statsError = it.message ?: it.toString()
+                statsLoading = false
+            },
+        )
+    }
+
+    val locationGranted = hasLocationPermission(context)
+    val activityGranted =
+        context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    val gpsEnabled = isGpsEnabled(context)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -56,6 +93,36 @@ fun SettingsScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (showClearDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearDialog = false },
+                title = {
+                    Text(stringResource(com.wayfarer.android.R.string.settings_clear_local_data_confirm_title))
+                },
+                text = {
+                    Text(stringResource(com.wayfarer.android.R.string.settings_clear_local_data_confirm_body))
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showClearDialog = false
+                            repository.clearAllAsync(
+                                onDone = { refreshStats() },
+                                onError = { err -> statsError = err.message ?: err.toString() },
+                            )
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_confirm))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearDialog = false }) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_cancel))
+                    }
+                },
+            )
+        }
+
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -75,6 +142,138 @@ fun SettingsScreen() {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+
+        OutlinedCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = stringResource(com.wayfarer.android.R.string.settings_section_permissions),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+
+                SettingsStatusRow(
+                    label = stringResource(com.wayfarer.android.R.string.tracking_status_location_permission),
+                    value =
+                        if (locationGranted) {
+                            stringResource(com.wayfarer.android.R.string.status_granted)
+                        } else {
+                            stringResource(com.wayfarer.android.R.string.status_denied)
+                        },
+                )
+                SettingsStatusRow(
+                    label = stringResource(com.wayfarer.android.R.string.tracking_status_activity_permission),
+                    value =
+                        if (activityGranted) {
+                            stringResource(com.wayfarer.android.R.string.status_granted)
+                        } else {
+                            stringResource(com.wayfarer.android.R.string.status_denied)
+                        },
+                )
+                SettingsStatusRow(
+                    label = stringResource(com.wayfarer.android.R.string.tracking_status_gps),
+                    value =
+                        if (gpsEnabled) {
+                            stringResource(com.wayfarer.android.R.string.status_enabled)
+                        } else {
+                            stringResource(com.wayfarer.android.R.string.status_disabled)
+                        },
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Row {
+                    FilledTonalButton(
+                        onClick = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                .setData(Uri.parse("package:${context.packageName}"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_open_app_settings))
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Button(
+                        onClick = {
+                            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_open_location_settings))
+                    }
+                }
+            }
+        }
+
+        OutlinedCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(com.wayfarer.android.R.string.settings_section_data),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Button(onClick = { refreshStats() }) {
+                        Text(stringResource(com.wayfarer.android.R.string.track_stats_refresh))
+                    }
+                }
+
+                when {
+                    statsLoading -> {
+                        Text(
+                            text = stringResource(com.wayfarer.android.R.string.track_stats_loading),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    statsError != null -> {
+                        Text(
+                            text = statsError ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+
+                    else -> {
+                        val resolved = stats
+                        if (resolved != null) {
+                            SettingsStatusRow(
+                                label = stringResource(com.wayfarer.android.R.string.track_stats_total),
+                                value = resolved.totalCount.toString(),
+                                mono = true,
+                            )
+                            SettingsStatusRow(
+                                label = stringResource(com.wayfarer.android.R.string.track_stats_pending_sync),
+                                value = resolved.pendingSyncCount.toString(),
+                                mono = true,
+                            )
+                            SettingsStatusRow(
+                                label = stringResource(com.wayfarer.android.R.string.track_stats_latest),
+                                value = resolved.latestRecordedAtUtc ?: "-",
+                                mono = true,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Button(
+                    onClick = { showClearDialog = true },
+                ) {
+                    Text(stringResource(com.wayfarer.android.R.string.settings_clear_local_data))
+                }
             }
         }
 
@@ -141,6 +340,44 @@ fun SettingsScreen() {
         if (developerModeEnabled) {
             DeveloperToolsCard(context = context)
         }
+    }
+
+    // Initialize stats lazily after first composition.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        refreshStats()
+    }
+}
+
+private fun hasLocationPermission(context: Context): Boolean {
+    return context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED ||
+        context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+private fun isGpsEnabled(context: Context): Boolean {
+    val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+    return runCatching {
+        lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }.getOrDefault(false)
+}
+
+@Composable
+private fun SettingsStatusRow(label: String, value: String, mono: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
+        )
     }
 }
 
