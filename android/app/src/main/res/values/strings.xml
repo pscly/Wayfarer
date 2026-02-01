@@ -3,6 +3,8 @@
 
     <!-- App shell -->
     <string name="tab_tracks">记录</string>
+    <string name="tab_map">地图</string>
+    <string name="tab_stats">统计</string>
     <string name="tab_settings">设置</string>
     <string name="settings_section_map">地图</string>
     <string name="settings_section_about">关于</string>
@@ -34,6 +36,43 @@
     <string name="track_stats_refresh">刷新</string>
     <string name="track_stats_loading">读取中…</string>
     <string name="track_stats_empty">暂无轨迹点。开始记录后会自动出现在这里。</string>
+
+    <!-- Records list / detail -->
+    <string name="records_title">记录</string>
+    <string name="records_sessions">记录列表</string>
+    <string name="records_session_points">点数</string>
+    <string name="records_session_duration">时长</string>
+    <string name="records_session_distance">距离</string>
+    <string name="records_view_detail">查看详情</string>
+    <string name="records_back">返回</string>
+    <string name="records_empty">暂无记录。建议先开启记录并走一段路再回来查看。</string>
+
+    <!-- Map -->
+    <string name="map_title">地图</string>
+    <string name="map_range_1h">最近 1 小时</string>
+    <string name="map_range_24h">最近 24 小时</string>
+    <string name="map_range_today">今天</string>
+    <string name="map_range_7d">最近 7 天</string>
+    <string name="map_no_points">该时间范围内暂无轨迹点。</string>
+
+    <!-- Stats -->
+    <string name="stats_title">统计</string>
+    <string name="stats_last_7d">近 7 天</string>
+    <string name="stats_last_30d">近 30 天</string>
+    <string name="stats_points">轨迹点</string>
+    <string name="stats_distance">距离</string>
+    <string name="stats_active_days">活跃天数</string>
+
+    <!-- Settings (product) -->
+    <string name="settings_section_permissions">权限与系统</string>
+    <string name="settings_open_app_settings">打开应用设置</string>
+    <string name="settings_open_location_settings">打开定位设置</string>
+    <string name="settings_section_data">数据管理</string>
+    <string name="settings_clear_local_data">清空本地数据</string>
+    <string name="settings_clear_local_data_confirm_title">确认清空？</string>
+    <string name="settings_clear_local_data_confirm_body">这会删除本机所有轨迹点（不可恢复）。</string>
+    <string name="settings_confirm">确定</string>
+    <string name="settings_cancel">取消</string>
     <string name="tracking_start">开始记录</string>
     <string name="tracking_stop">停止记录</string>
     <string name="tracking_request_permission">授权并开始</string>
