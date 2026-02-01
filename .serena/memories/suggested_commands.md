@@ -1,15 +1,19 @@
-# Suggested Commands (Windows)
+# 常用命令（Windows）
 
-Root:
-- `run.bat` (start backend+web)
-- `stop.bat` (stop backend+web)
+仓库根目录：
 
-Web (`web/`):
-- `npm run dev` (start Next.js dev server)
-- `npm run build` (Next.js production build)
-- `npm run lint` (Next.js lint)
-- `npm run test:e2e` (Playwright tests)
+- `run.bat`（启动 backend+web）
+- `stop.bat`（停止 backend+web）
 
-Backend (`backend/`):
-- `uv sync` (install Python deps)
-- Typical FastAPI run is via `uv run ...` (see backend docs/entrypoints if needed)
+Web（`web/`）：
+
+- `npm run dev`（启动 Next.js 开发服务）
+- `npm run build`（Next.js 生产构建）
+- `npm run start`（启动 Next.js 生产服务）
+- `npm run lint`（Next.js lint）
+- `npm run test:e2e`（Playwright 测试）
+
+Backend（`backend/`）：
+
+- `uv sync`（安装 Python 依赖）
+- 常规 FastAPI 启动：`uv run ...`（以 `backend/` 的入口/文档为准）

@@ -1,154 +1,154 @@
 # Wayfarer
 
-Wayfarer is a monorepo with:
+Wayfarer 是一个单仓库（monorepo），包含：
 
-- `backend/`: FastAPI + SQLAlchemy (async) on port `8000`
-- `web/`: Next.js 14 on port `3000`
-- `android/`: placeholder
+- `backend/`: FastAPI + SQLAlchemy（异步），默认端口 `8000`
+- `web/`: Next.js 14（App Router），默认端口 `3000`
+- `android/`: 原生 Android（Kotlin + Jetpack Compose）
 
-Primary production target: `https://waf.pscly.cc`
+主要线上部署地址：`https://waf.pscly.cc`
 
-This README is intended to be the project manual: local dev, configuration, and end-to-end production deployment.
+本 README 作为项目使用手册：本地开发、配置，以及端到端的生产部署。
 
-## Quick start (local dev on Windows)
+## 快速开始（Windows 本地开发）
 
-Prereqs:
+前置条件：
 
 - Windows
-- `uv` installed
-- Node.js + npm installed
+- 已安装 `uv`
+- 已安装 Node.js + npm
 
-Steps:
+步骤：
 
-1) (Optional) Create `.env`
+1) （可选）创建 `.env`
 
-   Copy `.env.example` to `.env` at repo root.
+   将仓库根目录的 `.env.example` 复制为 `.env`。
 
-2) Start backend + web
+2) 启动后端 + Web
 
-   Run:
+   运行：
 
    ```bat
    run.bat
    ```
 
-   Notes (actual behavior):
+   说明（实际行为）：
 
-   - `run.bat` runs `uv sync` in `backend/`.
-   - `run.bat` runs `npm install` in `web/` only if `web/node_modules/` is missing.
-   - PIDs are recorded in `.sisyphus/run/backend.pid` and `.sisyphus/run/web.pid`.
-   - `run.bat` exits 0 only after `http://localhost:8000/healthz` returns 200.
-   - If `WAYFARER_JWT_SIGNING_KEYS_JSON` is missing, `run.bat` generates a dev-only key map JSON and injects it into the backend process only.
+   - `run.bat` 会在 `backend/` 里执行 `uv sync`。
+   - `run.bat` 只在 `web/node_modules/` 缺失时才会在 `web/` 里执行 `npm install`。
+   - 进程 PID 会记录在 `.sisyphus/run/backend.pid` 和 `.sisyphus/run/web.pid`。
+   - `run.bat` 只有在 `http://localhost:8000/healthz` 返回 200 后才会以 0 退出。
+   - 如果缺少 `WAYFARER_JWT_SIGNING_KEYS_JSON`，`run.bat` 会生成仅用于本地开发的 key map JSON，并仅注入到本次后端进程（不会写入仓库文件）。
 
-3) Stop backend + web
+3) 停止后端 + Web
 
-   Run:
+   运行：
 
    ```bat
    stop.bat
    ```
 
-   Notes (actual behavior):
+   说明（实际行为）：
 
-   - `stop.bat` kills only the recorded PIDs (process tree) and then verifies ports `8000/3000` are no longer listening.
+   - `stop.bat` 只会杀掉记录过的 PID（含子进程），然后验证端口 `8000/3000` 不再监听。
 
-Local URLs:
+本地地址：
 
-- Web: `http://localhost:3000`
-- Backend health: `http://localhost:8000/healthz`
-- Backend ready: `http://localhost:8000/readyz`
+- Web：`http://localhost:3000`
+- Backend 健康检查：`http://localhost:8000/healthz`
+- Backend 就绪检查：`http://localhost:8000/readyz`
 
-## Configuration
+## 配置
 
-This repo uses environment variables.
+本仓库使用环境变量进行配置。
 
-- Backend settings are loaded with prefix `WAYFARER_`.
-- Web reads public env vars at build/runtime (Next.js) like `NEXT_PUBLIC_API_BASE_URL`.
+- 后端配置项统一使用前缀 `WAYFARER_`。
+- Web（Next.js）读取公开环境变量（build/runtime），例如 `NEXT_PUBLIC_API_BASE_URL`。
 
-### Web env vars
+### Web 环境变量
 
-Used in `web/lib/api.ts`:
+在 `web/lib/api.ts` 中使用：
 
 - `NEXT_PUBLIC_API_BASE_URL`
-  - Default: `http://localhost:8000`
-  - Production for `waf.pscly.cc`: set to `https://waf.pscly.cc` (so web calls `https://waf.pscly.cc/v1/...`).
+  - 默认：`http://localhost:8000`
+  - `waf.pscly.cc` 线上：设置为 `https://waf.pscly.cc`（这样 Web 会请求 `https://waf.pscly.cc/v1/...`）
 
-Other web vars:
+其他 Web 变量：
 
-- `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` (optional, depends on features)
+- `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`（可选，取决于功能开关）
 
-### Backend env vars
+### Backend 环境变量
 
-Core:
+核心：
 
 - `WAYFARER_DB_URL`
-  - Default: `sqlite+aiosqlite:///./data/dev.db` (good for local dev)
+  - 默认：`sqlite+aiosqlite:///./data/dev.db`（适合本地开发）
 - `WAYFARER_JWT_SIGNING_KEYS_JSON`
-  - Required for real deployments
-  - Format: JSON map of `kid -> secret`, example: `{"prod-1":"REPLACE_WITH_32B_BASE64URL"}`
-  - MUST be stable in production (do NOT rely on `run.bat` auto-generation)
+  - 真实部署必填
+  - 格式：`kid -> secret` 的 JSON map，例如：`{"prod-1":"REPLACE_WITH_32B_BASE64URL"}`
+  - 生产必须稳定（不要依赖 `run.bat` 的自动生成）
 - `WAYFARER_JWT_KID_CURRENT`
-  - The active key id in `WAYFARER_JWT_SIGNING_KEYS_JSON`
-  - Default: `dev-1`
+  - 当前使用的 key id（来自 `WAYFARER_JWT_SIGNING_KEYS_JSON`）
+  - 默认：`dev-1`
 
-Web cookie + CORS (important for browser auth):
+Web Cookie + CORS（浏览器认证非常重要）：
 
 - `WAYFARER_CORS_ALLOW_ORIGIN`
-  - Default: `http://localhost:3000`
-  - Production for `waf.pscly.cc`: set to `https://waf.pscly.cc`
+  - 默认：`http://localhost:3000`
+  - `waf.pscly.cc` 线上：设置为 `https://waf.pscly.cc`
 - `WAYFARER_CORS_ALLOW_CREDENTIALS`
-  - Default: `1` (true)
+  - 默认：`1`（true）
 - `WAYFARER_DEV_COOKIE_SECURE`
-  - Controls the cookie `Secure` flag for `wf_refresh` and `wf_csrf`
-  - Local dev default: `0`
-  - Production behind HTTPS: set to `1`
+  - 控制 `wf_refresh` 和 `wf_csrf` Cookie 的 `Secure` 标志
+  - 本地默认：`0`
+  - 线上 HTTPS：设置为 `1`
 
-Async tasks (dev-friendly defaults):
+异步任务（本地友好默认值）：
 
 - `WAYFARER_CELERY_EAGER`
-  - Local dev default: `1` (tasks run inline)
-  - Production recommendation: `0` (only if you actually run a worker + broker)
+  - 本地默认：`1`（任务在进程内同步执行）
+  - 线上推荐：`0`（仅当你实际部署 worker + broker）
 
-Third-party (optional):
+第三方（可选）：
 
 - `WAYFARER_AMAP_API_KEY`
 
-## How auth works (web vs non-web clients)
+## 认证机制（Web vs 非 Web 客户端）
 
-The backend has two modes for refresh tokens:
+后端的 refresh token 有两种模式：
 
-1) Web client (browser)
+1) Web 客户端（浏览器）
 
-- The backend detects "web" by checking `Origin == WAYFARER_CORS_ALLOW_ORIGIN`.
-- On login/refresh, the backend sets cookies:
-  - `wf_refresh`: httpOnly refresh token
-  - `wf_csrf`: readable by JS (double-submit CSRF)
-- The web client MUST send cookies, so `fetch(..., { credentials: "include" })` is required (already enforced in `web/lib/api.ts`).
+- 后端通过判断 `Origin == WAYFARER_CORS_ALLOW_ORIGIN` 来识别“Web 请求”。
+- login/refresh 时后端会设置 Cookie：
+  - `wf_refresh`：httpOnly refresh token
+  - `wf_csrf`：可被 JS 读取（double-submit CSRF）
+- Web 客户端必须携带 Cookie，因此 `fetch(..., { credentials: "include" })` 是必须的（已在 `web/lib/api.ts` 固化）。
 
-2) Android / scripts (no Origin)
+2) Android / 脚本（无 Origin）
 
-- Clients typically do not send `Origin`.
-- The backend returns `refresh_token` in the JSON response body, and expects it back in the request body for refresh.
+- 这类客户端通常不会发送 `Origin`。
+- 后端会在 JSON 响应体内返回 `refresh_token`，并要求 refresh 时由客户端在请求体中回传。
 
-Production implications:
+生产部署注意事项：
 
-- If you serve web at `https://waf.pscly.cc`, set `WAYFARER_CORS_ALLOW_ORIGIN=https://waf.pscly.cc`.
-- If you terminate TLS (HTTPS), set `WAYFARER_DEV_COOKIE_SECURE=1` so cookies have `Secure`.
+- 如果 Web 站点部署在 `https://waf.pscly.cc`，需要设置 `WAYFARER_CORS_ALLOW_ORIGIN=https://waf.pscly.cc`。
+- 如果使用 HTTPS（TLS 终止），需要设置 `WAYFARER_DEV_COOKIE_SECURE=1` 以启用 Cookie 的 `Secure`。
 
-## Database and migrations
+## 数据库与迁移
 
-Local dev default is SQLite (async) at `./data/dev.db`.
+本地开发默认使用 SQLite（异步），位于 `./data/dev.db`。
 
-For production, use PostgreSQL.
+生产推荐使用 PostgreSQL。
 
-Example DB URLs:
+示例 DB URL：
 
-- SQLite (dev): `sqlite+aiosqlite:///./data/dev.db`
-- PostgreSQL (prod example): `postgresql+psycopg://wayfarer:CHANGE_ME@127.0.0.1:5432/wayfarer`
+- SQLite（dev）：`sqlite+aiosqlite:///./data/dev.db`
+- PostgreSQL（prod 示例）：`postgresql+psycopg://wayfarer:CHANGE_ME@127.0.0.1:5432/wayfarer`
 
-Alembic is configured in `backend/alembic.ini`, but the URL is set dynamically in `backend/alembic/env.py` from `WAYFARER_DB_URL`.
+Alembic 配置在 `backend/alembic.ini`，实际 URL 通过 `backend/alembic/env.py` 从 `WAYFARER_DB_URL` 动态注入。
 
-Common migration commands (run from `backend/`):
+常用迁移命令（在 `backend/` 下运行）：
 
 ```bat
 uv run alembic upgrade head
@@ -156,20 +156,20 @@ uv run alembic current
 uv run alembic history
 ```
 
-## Production deployment: https://waf.pscly.cc
+## 生产部署： https://waf.pscly.cc
 
-Recommended layout (single host):
+推荐布局（单机示例）：
 
-- Nginx listens on `:443` for `waf.pscly.cc`
-- Nginx routes:
+- Nginx 监听 `:443`（域名 `waf.pscly.cc`）
+- Nginx 路由：
   - `/v1/` -> backend `http://127.0.0.1:8000`
   - `/` -> Next.js `http://127.0.0.1:3000`
 
-This keeps web + API on the same origin (`https://waf.pscly.cc`), which matches the backend "web client" behavior.
+这样 Web + API 在同一 origin（`https://waf.pscly.cc`），与后端“Web 客户端”的行为一致。
 
-### Required production env vars (safe placeholders)
+### 生产环境变量（示例，占位符）
 
-Backend (example values):
+Backend（示例值）：
 
 ```ini
 WAYFARER_DB_URL=postgresql+psycopg://wayfarer:CHANGE_ME@127.0.0.1:5432/wayfarer
@@ -185,16 +185,16 @@ WAYFARER_JWT_KID_CURRENT=prod-1
 WAYFARER_CELERY_EAGER=0
 ```
 
-Web (example values):
+Web（示例值）：
 
 ```ini
 NEXT_PUBLIC_API_BASE_URL=https://waf.pscly.cc
 NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=CHANGE_ME_IF_USED
 ```
 
-### Minimal Nginx config (reverse proxy)
+### 最小 Nginx 配置（反向代理）
 
-This is a minimal server block example (ASCII only). Adjust SSL cert paths for your environment.
+以下是最小 server block 示例（示例内容保持 ASCII）。根据你的环境调整 SSL 证书路径。
 
 ```nginx
 server {
@@ -224,16 +224,16 @@ server {
 }
 ```
 
-### systemd units (example)
+### systemd 单元（示例）
 
-Assumptions:
+假设：
 
-- Repo checked out to `/opt/wayfarer`
-- Backend runs with `uv` in `/opt/wayfarer/backend`
-- Web runs with `npm` in `/opt/wayfarer/web`
-- Env files are managed in `/etc/wayfarer/` (recommended)
+- 仓库部署在 `/opt/wayfarer`
+- 后端使用 `uv`，工作目录 `/opt/wayfarer/backend`
+- Web 使用 `npm`，工作目录 `/opt/wayfarer/web`
+- 环境变量文件统一放在 `/etc/wayfarer/`（推荐）
 
-Backend unit: `/etc/systemd/system/wayfarer-backend.service`
+后端单元：`/etc/systemd/system/wayfarer-backend.service`
 
 ```ini
 [Unit]
@@ -257,7 +257,7 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-Web unit: `/etc/systemd/system/wayfarer-web.service`
+Web 单元：`/etc/systemd/system/wayfarer-web.service`
 
 ```ini
 [Unit]
@@ -279,24 +279,24 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-### Deployment checklist (suggested)
+### 部署检查清单（建议）
 
 1) Backend
 
-- Set stable JWT signing keys (`WAYFARER_JWT_SIGNING_KEYS_JSON`) and `WAYFARER_JWT_KID_CURRENT`.
-- Set DB URL (`WAYFARER_DB_URL`) to PostgreSQL.
-- Run migrations:
+- 设置稳定的 JWT 签名 key（`WAYFARER_JWT_SIGNING_KEYS_JSON`）和 `WAYFARER_JWT_KID_CURRENT`。
+- 将 DB URL（`WAYFARER_DB_URL`）指向 PostgreSQL。
+- 运行迁移：
 
   ```bash
   cd /opt/wayfarer/backend
-  # load the same env vars as the service, then:
+  # 先加载与 service 相同的环境变量，然后执行：
   uv run alembic upgrade head
   ```
 
 2) Web
 
-- Set `NEXT_PUBLIC_API_BASE_URL=https://waf.pscly.cc`.
-- Build once:
+- 设置 `NEXT_PUBLIC_API_BASE_URL=https://waf.pscly.cc`。
+- 构建一次：
 
   ```bash
   cd /opt/wayfarer/web
@@ -306,18 +306,18 @@ WantedBy=multi-user.target
 
 3) Nginx
 
-- Enable the site config and reload: `nginx -t && systemctl reload nginx`
+- 启用站点配置并 reload：`nginx -t && systemctl reload nginx`
 
-## Operations
+## 运维
 
-Health checks:
+健康检查：
 
 ```bash
 curl -fsS http://127.0.0.1:8000/healthz
 curl -fsS http://127.0.0.1:8000/readyz
 ```
 
-Service status and logs:
+服务状态与日志：
 
 ```bash
 systemctl status wayfarer-backend
@@ -327,14 +327,14 @@ journalctl -u wayfarer-backend -f
 journalctl -u wayfarer-web -f
 ```
 
-Restart:
+重启：
 
 ```bash
 systemctl restart wayfarer-backend
 systemctl restart wayfarer-web
 ```
 
-Database migrations (same env as backend):
+数据库迁移（使用与后端相同的环境变量）：
 
 ```bash
 cd /opt/wayfarer/backend

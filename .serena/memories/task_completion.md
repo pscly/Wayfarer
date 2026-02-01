@@ -1,6 +1,7 @@
-# After Completing a Task
+# 任务完成后的检查清单
 
-Web changes:
-- Run `npm run build` in `web/`.
-- Run `npx playwright test` (or `npm run test:e2e`) in `web/`.
-- Ensure TypeScript/LSP diagnostics are clean for touched files.
+Web 改动：
+
+- 在 `web/` 下运行 `npm run build`。
+- 在 `web/` 下运行 `npm run test:e2e`。
+- 确认涉及文件的 TypeScript 类型检查与构建通过。

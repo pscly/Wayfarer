@@ -1,46 +1,53 @@
-# Draft: Wayfarer Next Steps
+# 草稿：Wayfarer 下一步
 
-## Current State (observed in repo)
-- Plan exists: `.sisyphus/plans/wayfarer-plan-supplement.md`
-- Local research baselines exist: `.sisyphus/plans/wayfarer-research-notes.md`
-- Deliverable file exists but is placeholder: `.sisyphus/deliverables/plan-supplement.md` (needs Tasks 1-8 to fill)
+## 当前状态（仓库观察）
 
-## Requirements (confirmed)
-- Fill ALL design gaps from `plan.md` without modifying `plan.md`.
-- Then implement end-to-end: `backend/` + `web/` + `android/`.
-- Android map SDK: AMap (高德地图 SDK).
-- Export formats: CSV / GPX / GeoJSON / KML.
-- Weather enrichment is best-effort: allow export without weather (PARTIAL).
-- No secrets committed (keys via env/gradle injection).
-- 沟通语言：用户要求使用中文。
+- 已存在规划文件：`.sisyphus/plans/wayfarer-plan-supplement.md`
+- 已存在本地研究基线：`.sisyphus/plans/wayfarer-research-notes.md`
+- 已存在交付物文件但仍是占位：`.sisyphus/deliverables/plan-supplement.md`（需要 Tasks 1-8 逐步填充）
 
-## Requirements (newly confirmed in this turn)
+## 已确认的需求
+
+- 补齐 `plan.md` 中的所有设计缺口，但不修改 `plan.md`。
+- 然后端到端实现：`backend/` + `web/` + `android/`。
+- Android 地图 SDK：AMap（高德地图 SDK）。
+- 导出格式：CSV / GPX / GeoJSON / KML。
+- 天气填充 best-effort：允许无天气导出（PARTIAL）。
+- 禁止提交任何敏感信息（key 通过 env/gradle 注入）。
+- 沟通语言：中文。
+
+## 本轮新增确认
+
 - 坐标系策略：两套都存（WGS84 + GCJ-02）。
 - 推进方式：先做高精度审查（Momus review loop）。
 
-## Requirements (newly confirmed in latest user message)
+## 最近用户消息新增确认
+
 - 本地开发环境：没有 Docker。
 - 本地 `run.bat`：必须使用 `uv` 启动（而不是 docker compose）。
 
-## Environment Notes (newly confirmed)
+## 环境说明（已确认）
+
 - 你有一个局域网内的 PostgreSQL（在另一台电脑上，不是本机）。
-- 你在询问 PostGIS 是什么（说明当前 PG 是否装 PostGIS 不确定）。
+- 你在询问 PostGIS 是什么（说明当前 PG 是否已安装 PostGIS 不确定）。
 
-## Critical Ambiguity / Decision Needed
-- **Coordinate system canonicalization**:
-  - AMap/China ecosystems often use GCJ-02, while DB/API currently assumes WGS84 (EPSG:4326).
-  - Need explicit decision on what is stored/transmitted/exported and where conversions happen.
+## 关键歧义 / 待决策
 
-## Next Steps (proposed)
-1. Decide coordinate system strategy (WGS84 vs GCJ-02 vs store both).
-2. Optionally run a high-accuracy plan review (Momus) on `.sisyphus/plans/wayfarer-plan-supplement.md`.
-3. Start execution from Task 1 (generate full `.sisyphus/deliverables/plan-supplement.md`), then proceed to implementation Tasks 9-25.
+- **坐标系规范化（canonicalization）**：
+  - AMap/国内生态通常使用 GCJ-02；而 DB/API 往往默认按 WGS84（EPSG:4326）。
+  - 需要明确：哪些字段存/传/导出；以及在哪一层做转换（采集端/服务端/导出端）。
 
-## Momus Review (result)
-## Momus Review (latest)
-- Verdict: OKAY (after multiple iterations)
-- Key fixes applied:
-  - 修复计划自引用的错误行号引用（如 `:42`），改为稳定的 Section 引用
+## 下一步（建议）
+
+1. 决定坐标系策略（WGS84 vs GCJ-02 vs 同时存储）。
+2. （可选）对 `.sisyphus/plans/wayfarer-plan-supplement.md` 进行高精度计划审查（Momus）。
+3. 从 Task 1 开始执行（生成完整 `.sisyphus/deliverables/plan-supplement.md`），再继续实现 Tasks 9-25。
+
+## Momus 审查（结果）
+
+- 结论：OKAY（多轮迭代后）
+- 关键修复：
+  - 修复计划中自引用的错误行号引用（如 `:42`），改为稳定的 Section 引用
   - 明确本计划是“两阶段同一计划”（Phase 1 文档交付 + Phase 2 全量实现），并补齐验收口径
   - 补齐 Web 时间轴/轨迹编辑的后端契约（tracks/query + tracks/edits），避免实现阻塞
   - 增加 Env Var Contract（键名/用途/空值降级），避免 Key 阻塞落地
@@ -50,6 +57,7 @@
   - Playwright/Mapbox：测试不依赖外网/真实地图渲染；data-testid 断言；page.route mock 口径定稿
   - PostGIS geometry：不引入 geoalchemy2，使用 SQL 表达式写 geom；不使用触发器/生成列
 
-## Scope Boundaries
-- INCLUDE: design supplement + full implementation.
-- EXCLUDE: committing real API keys or credentials; modifying `plan.md`.
+## 范围边界
+
+- INCLUDE：设计补充文档 + 全量实现。
+- EXCLUDE：提交真实 API key/凭据；修改 `plan.md`。

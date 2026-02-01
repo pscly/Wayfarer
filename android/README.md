@@ -1,74 +1,73 @@
-# Wayfarer Android
+# Wayfarer Android（安卓端）
 
-This directory is a standalone Android Gradle project.
+本目录是一个独立的 Android Gradle 工程。
 
-## Prerequisites
+## 前置条件
 
 - Windows
-- Android Studio (or Android SDK installed)
+- Android Studio（或已安装 Android SDK）
 - JDK 17
 
-## AMap (Gaode) API key
+## 高德（AMap）API Key
 
-The AMap key is injected into `android/app/src/main/AndroidManifest.xml` via
-`manifestPlaceholders`.
+高德 Key 会通过 `manifestPlaceholders` 注入到：
 
-The manifest meta-data name must be exactly:
+- `android/app/src/main/AndroidManifest.xml`
+
+Manifest 的 meta-data name 必须严格为：
 
 - `com.amap.api.v2.apikey`
 
-Key source priority (highest -> lowest):
+Key 的来源优先级（从高到低）：
 
-1) Gradle project property:
+1) Gradle project property：
 
    `-PWAYFARER_AMAP_API_KEY=...`
 
-2) Environment variable:
+2) 环境变量：
 
    `WAYFARER_AMAP_API_KEY`
 
-3) `android/local.properties` (local-only, gitignored)
+3) `android/local.properties`（仅本地，已 gitignore）
 
-   You can add this alongside `sdk.dir=...`:
+   可以与 `sdk.dir=...` 同文件添加：
 
    `WAYFARER_AMAP_API_KEY=...`
 
-Important:
+重要说明：
 
-- Do NOT commit real API keys.
-- `.env` files are NOT automatically loaded by Gradle. If you want to use the env var
-  path, export it in your shell/session before running Gradle.
+- 不要提交真实 API Key。
+- Gradle 不会自动加载 `.env`。如果使用环境变量方式，请在运行 Gradle 前在 shell/session 中提前导出环境变量。
 
-## Missing key behavior (CI-safe)
+## Key 缺失时行为（CI 安全）
 
-If the key is missing (blank/sentinel), the app:
+当 Key 缺失（空值/占位符）时，App 会：
 
-- shows a clear "AMap API key missing" screen
-- skips `MapView` initialization
+- 显示明确的“高德 API Key 缺失”提示
+- 跳过 `MapView` 初始化
 
-This keeps `gradlew.bat test` and `gradlew.bat assembleDebug` CI-safe.
+这样可以保持 `gradlew.bat test` 与 `gradlew.bat assembleBenchmark` 在 CI/无 Key 环境下仍可执行。
 
-## Commands
+## 常用命令
 
-From `android/`:
+在 `android/` 目录运行：
 
-- Unit tests: `gradlew.bat test`
-- Debug APK: `gradlew.bat assembleDebug`
+- 单元测试：`gradlew.bat test`
+- Benchmark APK（交付推荐）：`gradlew.bat assembleBenchmark`
+- Debug APK（仅开发用）：`gradlew.bat assembleDebug`
 
-## Non-ASCII Windows paths
+## Windows 非 ASCII 路径
 
-This repo path contains non-ASCII characters. Android Gradle Plugin may warn/fail on
-Windows when the project path is non-ASCII.
+本仓库路径包含非 ASCII 字符。Android Gradle Plugin 在 Windows 上可能因此警告/失败。
 
-Mitigations:
+已做的缓解：
 
-- `android/gradle.properties` enables `android.overridePathCheck=true` (the older `com.android.build.gradle.overridePathCheck` flag was removed in AGP 8.2.2).
-- On non-ASCII paths, `app/build.gradle.kts` also swaps the default AGP unit test tasks
-  with a tiny JUnit4 launcher to keep `gradlew.bat test` working.
-- If you still hit toolchain errors (AAPT2/resource processing/Gradle classpath), the
-  most reliable workaround is to build from an ASCII-only path.
+- `android/gradle.properties` 启用 `android.overridePathCheck=true`
+- 在非 ASCII 路径下，`app/build.gradle.kts` 会用一个极简的 JUnit4 launcher 替换默认的 AGP unit test tasks，以尽量保证 `gradlew.bat test` 可用
 
-One practical option is to use `subst` to map an ASCII drive letter:
+如果仍遇到工具链错误（AAPT2/resource processing/Gradle classpath 等），最可靠的方式是将工程放在 ASCII-only 路径下构建。
+
+一个实用方案：使用 `subst` 映射一个 ASCII 盘符：
 
 1) `subst W: "F:\\ai_codes\\3其他\\1Wayfarer"`
-2) Open a new shell and run Gradle from `W:\\android`.
+2) 打开新 shell，在 `W:\\android` 下运行 Gradle。
