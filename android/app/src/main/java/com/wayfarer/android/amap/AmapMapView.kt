@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -20,10 +21,21 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.amap.api.maps.MapView
 import com.amap.api.maps.MapsInitializer
+import com.amap.api.maps.CameraUpdateFactory
+import com.amap.api.maps.model.LatLng
+import com.amap.api.maps.model.LatLngBounds
+import com.amap.api.maps.model.PolylineOptions
+
+data class Wgs84Point(
+    val latitude: Double,
+    val longitude: Double,
+)
 
 @Composable
 fun AmapMapView(
     modifier: Modifier = Modifier,
+    pathWgs84: List<Wgs84Point> = emptyList(),
+    pathKey: Int = 0,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -63,6 +75,9 @@ fun AmapMapView(
         MapView(context).apply { onCreate(null) }
     }
 
+    // Avoid redrawing overlays on every recomposition.
+    val lastRenderedKey = remember { mutableStateOf<Int?>(null) }
+
     // Basic lifecycle wiring.
     DisposableEffect(lifecycleOwner, mapView) {
         val observer = LifecycleEventObserver { _, event ->
@@ -82,5 +97,40 @@ fun AmapMapView(
     AndroidView(
         modifier = modifier,
         factory = { mapView },
+        update = { view ->
+            if (pathKey == 0) return@AndroidView
+            if (lastRenderedKey.value == pathKey) return@AndroidView
+            lastRenderedKey.value = pathKey
+
+            val amap = runCatching { view.map }.getOrNull() ?: return@AndroidView
+            runCatching {
+                amap.clear()
+
+                if (pathWgs84.isEmpty()) return@runCatching
+
+                val points = pathWgs84.map { LatLng(it.latitude, it.longitude) }
+                if (points.size == 1) {
+                    amap.moveCamera(CameraUpdateFactory.newLatLngZoom(points.first(), 16f))
+                    return@runCatching
+                }
+
+                val options = PolylineOptions()
+                    .addAll(points)
+                    .width(8f)
+                    .color(0xFF38BDF8.toInt())
+                amap.addPolyline(options)
+
+                val bounds = LatLngBounds.builder().also { b ->
+                    for (p in points) b.include(p)
+                }.build()
+
+                // newLatLngBounds requires a laid-out view; post to be safe.
+                view.post {
+                    runCatching {
+                        amap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96))
+                    }
+                }
+            }
+        },
     )
 }
