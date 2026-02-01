@@ -28,6 +28,22 @@ val amapKey: String = run {
     }
 }
 
+// Base URL injected into BuildConfig.WAYFARER_API_BASE_URL.
+// Override priority (highest -> lowest):
+// 1) Gradle property: -PWAYFARER_API_BASE_URL=...
+// 2) Environment variable: WAYFARER_API_BASE_URL
+// 3) Per-buildType default (debug uses emulator-friendly localhost).
+fun resolveWayfarerApiBaseUrl(defaultValue: String): String {
+    val fromGradleProp = (project.findProperty("WAYFARER_API_BASE_URL") as String?)?.trim().orEmpty()
+    val fromEnv = System.getenv("WAYFARER_API_BASE_URL")?.trim().orEmpty()
+
+    return when {
+        fromGradleProp.isNotBlank() -> fromGradleProp
+        fromEnv.isNotBlank() -> fromEnv
+        else -> defaultValue
+    }
+}
+
 android {
     namespace = "com.wayfarer.android"
     compileSdk = 34
@@ -48,17 +64,39 @@ android {
     }
 
     buildTypes {
+        debug {
+            val url = resolveWayfarerApiBaseUrl("http://10.0.2.2:8000")
+            buildConfigField("String", "WAYFARER_API_BASE_URL", "\"$url\"")
+        }
+
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+
+            val url = resolveWayfarerApiBaseUrl("https://waf.pscly.cc")
+            buildConfigField("String", "WAYFARER_API_BASE_URL", "\"$url\"")
+        }
+
+        // Non-debug build for performance testing. Installable by default (debug keystore).
+        create("benchmark") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+
+            // Keep benchmark installable without configuring a real keystore.
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+
+            val url = resolveWayfarerApiBaseUrl("https://waf.pscly.cc")
+            buildConfigField("String", "WAYFARER_API_BASE_URL", "\"$url\"")
         }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

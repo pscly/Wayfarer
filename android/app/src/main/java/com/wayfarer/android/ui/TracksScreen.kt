@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.wayfarer.android.BuildConfig
 import com.wayfarer.android.amap.AmapApiKey
 import com.wayfarer.android.amap.AmapMapView
 import com.wayfarer.android.dev.DevInputMonitor
@@ -104,6 +105,13 @@ fun TracksScreen() {
                     .clickable {
                         developerModeEnabled = developerModeGate.tap()
                     },
+            )
+
+            // Verification hint: benchmark APK should show https://waf.pscly.cc here by default.
+            Text(
+                text = "api_base_url: ${BuildConfig.WAYFARER_API_BASE_URL}",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp),
             )
 
             if (!developerModeEnabled) {
