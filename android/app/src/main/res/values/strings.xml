@@ -1,3 +1,66 @@
 <resources>
     <string name="app_name">Wayfarer</string>
+
+    <!-- App shell -->
+    <string name="tab_tracks">记录</string>
+    <string name="tab_settings">设置</string>
+    <string name="settings_section_map">地图</string>
+    <string name="settings_section_about">关于</string>
+    <string name="settings_amap_key_present">高德 API Key：已配置</string>
+    <string name="settings_version">版本：%1$s (%2$d)</string>
+
+    <!-- Tracking screen -->
+    <string name="tracking_title">Wayfarer</string>
+    <string name="tracking_subtitle">轨迹记录</string>
+    <string name="tracking_api_base_url">API 地址：%1$s</string>
+    <string name="tracking_status_tracking">状态：正在记录</string>
+    <string name="tracking_status_idle">状态：未开始</string>
+    <string name="tracking_status_card_title">状态</string>
+    <string name="tracking_status_service">服务</string>
+    <string name="tracking_status_location_permission">定位权限</string>
+    <string name="tracking_status_activity_permission">活动识别</string>
+    <string name="tracking_status_gps">GPS</string>
+    <string name="status_granted">已授权</string>
+    <string name="status_denied">未授权</string>
+    <string name="status_enabled">已开启</string>
+    <string name="status_disabled">未开启</string>
+    <string name="tracking_service_running">运行中</string>
+    <string name="tracking_service_stopped">已停止</string>
+
+    <string name="track_stats_title">本地数据</string>
+    <string name="track_stats_total">总点数</string>
+    <string name="track_stats_pending_sync">待同步</string>
+    <string name="track_stats_latest">最近记录</string>
+    <string name="track_stats_refresh">刷新</string>
+    <string name="track_stats_loading">读取中…</string>
+    <string name="track_stats_empty">暂无轨迹点。开始记录后会自动出现在这里。</string>
+    <string name="tracking_start">开始记录</string>
+    <string name="tracking_stop">停止记录</string>
+    <string name="tracking_request_permission">授权并开始</string>
+    <string name="tracking_permission_hint">需要定位与活动识别权限才能记录轨迹。</string>
+
+    <!-- AMap key / map -->
+    <string name="amap_key_missing_title">高德 API Key 缺失</string>
+    <string name="amap_key_missing_short">请先配置 WAYFARER_AMAP_API_KEY。</string>
+    <string name="amap_key_missing_setup">配置方式：\n1) Gradle 参数：-PWAYFARER_AMAP_API_KEY=...\n2) 环境变量：WAYFARER_AMAP_API_KEY\n3) android/local.properties（仅本地，不要提交）</string>
+    <string name="amap_key_missing_manifest_blank">Manifest meta-data com.amap.api.v2.apikey 缺失或为空。</string>
+    <string name="amap_key_missing_manifest_invalid">Manifest meta-data com.amap.api.v2.apikey 已设置，但看起来像占位符/无效值。</string>
+
+    <!-- Developer tools -->
+    <string name="dev_tools_hint">连续点击标题 7 次开启开发者工具</string>
+    <string name="dev_tools_title">开发者工具</string>
+    <string name="dev_step_sensor">计步传感器：%1$s</string>
+    <string name="dev_step_count">步数：%1$s</string>
+    <string name="dev_step_delta">增量：%1$s</string>
+    <string name="dev_whitelist_root">加入白名单（Root）</string>
+    <string name="dev_probe_input">探测 /dev/input</string>
+    <string name="dev_start_input_monitor">开始监控 /dev/input</string>
+    <string name="dev_stop_input_monitor">停止监控 /dev/input</string>
+    <string name="dev_root_status">Root：%1$s</string>
+    <string name="dev_input_status">Input：%1$s</string>
+
+    <!-- Foreground notification -->
+    <string name="notif_channel_tracking">Wayfarer 轨迹记录</string>
+    <string name="notif_tracking_title">Wayfarer</string>
+    <string name="notif_tracking_text">正在记录轨迹</string>
 </resources>
