@@ -6,11 +6,24 @@
   /* Dark-first palette: no external assets, just CSS variables. */
   --background: #070a0f;
   --foreground: #e6edf3;
-  --muted: rgba(230, 237, 243, 0.65);
-  --panel: rgba(255, 255, 255, 0.06);
+  --muted: rgba(230, 237, 243, 0.7);
+
+  /* Surfaces/borders. */
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel-2: rgba(255, 255, 255, 0.075);
   --panel-border: rgba(255, 255, 255, 0.12);
+  --panel-border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Accent/feedback. */
   --accent: #38bdf8;
+  --accent-foreground: #071018;
+  --success: #34d399;
+  --warning: #fbbf24;
   --danger: #fb7185;
+  --danger-foreground: #1a0a0e;
+
+  /* Focus ring. */
+  --ring: rgba(56, 189, 248, 0.55);
 
   color-scheme: dark;
 }
@@ -19,9 +32,21 @@
   :root {
     --background: #fbfcfe;
     --foreground: #0b1220;
-    --muted: rgba(11, 18, 32, 0.65);
-    --panel: rgba(11, 18, 32, 0.05);
+    --muted: rgba(11, 18, 32, 0.68);
+
+    --panel: rgba(11, 18, 32, 0.04);
+    --panel-2: rgba(11, 18, 32, 0.06);
     --panel-border: rgba(11, 18, 32, 0.12);
+    --panel-border-strong: rgba(11, 18, 32, 0.2);
+
+    --accent: #0284c7;
+    --accent-foreground: #ffffff;
+    --success: #059669;
+    --warning: #b45309;
+    --danger: #e11d48;
+    --danger-foreground: #ffffff;
+
+    --ring: rgba(2, 132, 199, 0.38);
 
     color-scheme: light;
   }
@@ -31,7 +56,13 @@ body {
   color: var(--foreground);
   background: var(--background);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", sans-serif;
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* Subtle atmosphere without any network dependencies. */
