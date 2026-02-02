@@ -27,6 +27,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,14 +42,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.wayfarer.android.BuildConfig
+import com.wayfarer.android.api.AuthStore
+import com.wayfarer.android.api.ServerConfigStore
 import com.wayfarer.android.amap.AmapApiKey
 import com.wayfarer.android.dev.DevInputMonitor
 import com.wayfarer.android.dev.DeviceIdleWhitelist
 import com.wayfarer.android.dev.DeveloperModeGate
 import com.wayfarer.android.steps.StepDeltaCalculator
 import com.wayfarer.android.tracking.TrackPointRepository
+import com.wayfarer.android.sync.SyncStateStore
+import com.wayfarer.android.sync.WayfarerSyncManager
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun SettingsScreen() {
@@ -64,6 +75,58 @@ fun SettingsScreen() {
     var stats by remember { mutableStateOf<TrackPointRepository.TrackPointStats?>(null) }
 
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
+
+    val syncManager = remember { WayfarerSyncManager(context) }
+
+    // Server base URL override (optional). Empty => use BuildConfig default.
+    var serverUrlInput by rememberSaveable {
+        mutableStateOf(ServerConfigStore.readBaseUrlOverride(context) ?: "")
+    }
+    var currentBaseUrl by remember { mutableStateOf(ServerConfigStore.readBaseUrl(context)) }
+    var connectionTesting by remember { mutableStateOf(false) }
+    var connectionOk by remember { mutableStateOf<Boolean?>(null) }
+
+    // Auth state (stored in SharedPreferences).
+    var authedUserId by remember { mutableStateOf(AuthStore.readUserId(context)) }
+    var authedUsername by remember { mutableStateOf(AuthStore.readUsername(context)) }
+    var authBusy by remember { mutableStateOf(false) }
+    var authError by remember { mutableStateOf<String?>(null) }
+
+    // Login form.
+    var loginUsername by rememberSaveable { mutableStateOf("") }
+    var loginPassword by rememberSaveable { mutableStateOf("") }
+
+    // Register dialog.
+    var showRegisterDialog by rememberSaveable { mutableStateOf(false) }
+    var registerUsername by rememberSaveable { mutableStateOf("") }
+    var registerEmail by rememberSaveable { mutableStateOf("") }
+    var registerPassword by rememberSaveable { mutableStateOf("") }
+
+    // Sync UI state.
+    var syncBusy by remember { mutableStateOf(false) }
+    var syncMessage by remember { mutableStateOf<String?>(null) }
+    var lastUploadAtMs by remember { mutableStateOf(SyncStateStore.readLastUploadAtMs(context)) }
+    var lastPullAtMs by remember { mutableStateOf(SyncStateStore.readLastPullAtMs(context)) }
+
+    val dtf = remember {
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
+    }
+    fun fmtMs(ms: Long?): String {
+        if (ms == null) return "-"
+        return runCatching { dtf.format(Instant.ofEpochMilli(ms)) }.getOrDefault("-")
+    }
+
+    fun reloadAuthState() {
+        authedUserId = AuthStore.readUserId(context)
+        authedUsername = AuthStore.readUsername(context)
+    }
+    fun reloadBaseUrlState() {
+        currentBaseUrl = ServerConfigStore.readBaseUrl(context)
+    }
+    fun reloadSyncMeta() {
+        lastUploadAtMs = SyncStateStore.readLastUploadAtMs(context)
+        lastPullAtMs = SyncStateStore.readLastPullAtMs(context)
+    }
 
     fun refreshStats() {
         statsLoading = true
@@ -123,6 +186,97 @@ fun SettingsScreen() {
             )
         }
 
+        if (showRegisterDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!authBusy) showRegisterDialog = false
+                },
+                title = {
+                    Text(stringResource(com.wayfarer.android.R.string.settings_register))
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (authError != null) {
+                            Text(
+                                text = authError ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = registerUsername,
+                            onValueChange = { registerUsername = it },
+                            label = {
+                                Text(stringResource(com.wayfarer.android.R.string.settings_username))
+                            },
+                            singleLine = true,
+                            enabled = !authBusy,
+                        )
+                        OutlinedTextField(
+                            value = registerEmail,
+                            onValueChange = { registerEmail = it },
+                            label = {
+                                Text(stringResource(com.wayfarer.android.R.string.settings_email_optional))
+                            },
+                            singleLine = true,
+                            enabled = !authBusy,
+                        )
+                        OutlinedTextField(
+                            value = registerPassword,
+                            onValueChange = { registerPassword = it },
+                            label = {
+                                Text(stringResource(com.wayfarer.android.R.string.settings_password))
+                            },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            enabled = !authBusy,
+                        )
+                        Text(
+                            text = "密码至少 12 位。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !authBusy,
+                        onClick = {
+                            authBusy = true
+                            authError = null
+                            syncManager.registerAndLoginAsync(
+                                username = registerUsername.trim(),
+                                email = registerEmail.trim().ifBlank { null },
+                                password = registerPassword,
+                                onResult = {
+                                    authBusy = false
+                                    showRegisterDialog = false
+                                    reloadAuthState()
+                                    refreshStats()
+                                },
+                                onError = { err ->
+                                    authBusy = false
+                                    authError = err.message ?: err.toString()
+                                },
+                            )
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_register_and_login))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = !authBusy,
+                        onClick = { showRegisterDialog = false },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_cancel))
+                    }
+                },
+            )
+        }
+
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -137,7 +291,7 @@ fun SettingsScreen() {
                 Text(
                     text = stringResource(
                         com.wayfarer.android.R.string.tracking_api_base_url,
-                        BuildConfig.WAYFARER_API_BASE_URL,
+                        currentBaseUrl,
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -206,6 +360,329 @@ fun SettingsScreen() {
                         },
                     ) {
                         Text(stringResource(com.wayfarer.android.R.string.settings_open_location_settings))
+                    }
+                }
+            }
+        }
+
+        OutlinedCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = stringResource(com.wayfarer.android.R.string.settings_section_account_sync),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+
+                // Server
+                Text(
+                    text = stringResource(com.wayfarer.android.R.string.settings_server_url_current, currentBaseUrl),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace,
+                )
+
+                OutlinedTextField(
+                    value = serverUrlInput,
+                    onValueChange = { serverUrlInput = it },
+                    label = { Text(stringResource(com.wayfarer.android.R.string.settings_server_url_label)) },
+                    placeholder = { Text(stringResource(com.wayfarer.android.R.string.settings_server_url_hint)) },
+                    singleLine = true,
+                    enabled = !authBusy && !syncBusy,
+                )
+
+                Row {
+                    FilledTonalButton(
+                        enabled = !authBusy && !syncBusy,
+                        onClick = {
+                            ServerConfigStore.saveBaseUrl(context, serverUrlInput)
+                            reloadBaseUrlState()
+                            connectionOk = null
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_server_url_save))
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    TextButton(
+                        enabled = !authBusy && !syncBusy,
+                        onClick = {
+                            serverUrlInput = ""
+                            ServerConfigStore.saveBaseUrl(context, "")
+                            reloadBaseUrlState()
+                            connectionOk = null
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_server_url_reset))
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Button(
+                        enabled = !connectionTesting && !authBusy && !syncBusy,
+                        onClick = {
+                            connectionTesting = true
+                            connectionOk = null
+                            syncManager.testConnectionAsync(
+                                onResult = {
+                                    connectionTesting = false
+                                    connectionOk = it
+                                },
+                                onError = {
+                                    connectionTesting = false
+                                    connectionOk = false
+                                },
+                            )
+                        },
+                    ) {
+                        Text(
+                            text =
+                                if (connectionTesting) {
+                                    stringResource(com.wayfarer.android.R.string.settings_sync_action_running)
+                                } else {
+                                    stringResource(com.wayfarer.android.R.string.settings_test_connection)
+                                },
+                        )
+                    }
+                }
+
+                if (connectionOk != null) {
+                    Text(
+                        text =
+                            if (connectionOk == true) {
+                                stringResource(com.wayfarer.android.R.string.settings_connection_ok)
+                            } else {
+                                stringResource(com.wayfarer.android.R.string.settings_connection_failed)
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                        color =
+                            if (connectionOk == true) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Account
+                Text(
+                    text = stringResource(com.wayfarer.android.R.string.settings_account_status),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+
+                if (authError != null) {
+                    Text(
+                        text = authError ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                if (authedUserId != null && authedUsername != null) {
+                    Text(
+                        text = stringResource(
+                            com.wayfarer.android.R.string.settings_account_logged_in_as,
+                            authedUsername ?: "-",
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = authedUserId ?: "-",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Button(
+                        enabled = !authBusy && !syncBusy,
+                        onClick = {
+                            authError = null
+                            syncManager.logout()
+                            reloadAuthState()
+                            refreshStats()
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_logout))
+                    }
+                } else {
+                    Text(
+                        text = stringResource(com.wayfarer.android.R.string.settings_account_not_logged_in),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    OutlinedTextField(
+                        value = loginUsername,
+                        onValueChange = { loginUsername = it },
+                        label = { Text(stringResource(com.wayfarer.android.R.string.settings_username)) },
+                        singleLine = true,
+                        enabled = !authBusy && !syncBusy,
+                    )
+                    OutlinedTextField(
+                        value = loginPassword,
+                        onValueChange = { loginPassword = it },
+                        label = { Text(stringResource(com.wayfarer.android.R.string.settings_password)) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        enabled = !authBusy && !syncBusy,
+                    )
+
+                    Row {
+                        Button(
+                            enabled = !authBusy && !syncBusy,
+                            onClick = {
+                                authBusy = true
+                                authError = null
+                                syncManager.loginAsync(
+                                    username = loginUsername.trim(),
+                                    password = loginPassword,
+                                    onResult = {
+                                        authBusy = false
+                                        loginPassword = ""
+                                        reloadAuthState()
+                                        refreshStats()
+                                    },
+                                    onError = { err ->
+                                        authBusy = false
+                                        authError = err.message ?: err.toString()
+                                    },
+                                )
+                            },
+                        ) {
+                            Text(
+                                text =
+                                    if (authBusy) {
+                                        stringResource(com.wayfarer.android.R.string.settings_sync_action_running)
+                                    } else {
+                                        stringResource(com.wayfarer.android.R.string.settings_login)
+                                    },
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        FilledTonalButton(
+                            enabled = !authBusy && !syncBusy,
+                            onClick = {
+                                authError = null
+                                showRegisterDialog = true
+                            },
+                        ) {
+                            Text(stringResource(com.wayfarer.android.R.string.settings_register))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Sync
+                Text(
+                    text = stringResource(com.wayfarer.android.R.string.settings_sync_status),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+
+                Text(
+                    text = stringResource(
+                        com.wayfarer.android.R.string.settings_sync_pending,
+                        (stats?.pendingSyncCount ?: 0).toString(),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Text(
+                    text = stringResource(
+                        com.wayfarer.android.R.string.settings_sync_last_upload,
+                        fmtMs(lastUploadAtMs),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(
+                        com.wayfarer.android.R.string.settings_sync_last_pull,
+                        fmtMs(lastPullAtMs),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (syncMessage != null) {
+                    Text(
+                        text = syncMessage ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                val needLoginMsg = stringResource(com.wayfarer.android.R.string.settings_sync_need_login)
+
+                Row {
+                    Button(
+                        enabled = !syncBusy && !authBusy,
+                        onClick = {
+                            if (authedUserId == null) {
+                                syncMessage = needLoginMsg
+                                return@Button
+                            }
+                            syncBusy = true
+                            syncMessage = null
+                            syncManager.uploadPendingAsync(
+                                onResult = {
+                                    syncBusy = false
+                                    reloadSyncMeta()
+                                    refreshStats()
+                                    syncMessage =
+                                        "上传：sent=${it.sent}, ok=${it.accepted}, rejected=${it.rejected}, local_skip=${it.locallyRejected}"
+                                },
+                                onError = { err ->
+                                    syncBusy = false
+                                    syncMessage = err.message ?: err.toString()
+                                },
+                            )
+                        },
+                    ) {
+                        Text(
+                            text =
+                                if (syncBusy) {
+                                    stringResource(com.wayfarer.android.R.string.settings_sync_action_running)
+                                } else {
+                                    stringResource(com.wayfarer.android.R.string.settings_sync_upload_now)
+                                },
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    FilledTonalButton(
+                        enabled = !syncBusy && !authBusy,
+                        onClick = {
+                            if (authedUserId == null) {
+                                syncMessage = needLoginMsg
+                                return@FilledTonalButton
+                            }
+                            syncBusy = true
+                            syncMessage = null
+                            syncManager.pullLast24hAsync(
+                                onResult = {
+                                    syncBusy = false
+                                    reloadSyncMeta()
+                                    refreshStats()
+                                    syncMessage = "拉取：fetched=${it.fetched}, inserted=${it.inserted}"
+                                },
+                                onError = { err ->
+                                    syncBusy = false
+                                    syncMessage = err.message ?: err.toString()
+                                },
+                            )
+                        },
+                    ) {
+                        Text(stringResource(com.wayfarer.android.R.string.settings_sync_pull_24h))
                     }
                 }
             }

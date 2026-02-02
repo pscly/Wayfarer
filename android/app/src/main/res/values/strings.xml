@@ -65,6 +65,37 @@
 
     <!-- Settings (product) -->
     <string name="settings_section_permissions">权限与系统</string>
+    <string name="settings_section_account_sync">账号与同步</string>
+    <string name="settings_server_url_label">服务器地址（可选）</string>
+    <string name="settings_server_url_hint">留空使用默认；示例：http://10.0.2.2:8000</string>
+    <string name="settings_server_url_current">当前：%1$s</string>
+    <string name="settings_server_url_save">保存</string>
+    <string name="settings_server_url_reset">恢复默认</string>
+    <string name="settings_test_connection">测试连接</string>
+    <string name="settings_connection_ok">连接正常</string>
+    <string name="settings_connection_failed">连接失败</string>
+
+    <string name="settings_account_status">账号</string>
+    <string name="settings_account_logged_in_as">已登录：%1$s</string>
+    <string name="settings_account_not_logged_in">未登录</string>
+    <string name="settings_username">用户名</string>
+    <string name="settings_password">密码</string>
+    <string name="settings_email_optional">邮箱（可选）</string>
+    <string name="settings_login">登录</string>
+    <string name="settings_logout">退出登录</string>
+    <string name="settings_register">注册</string>
+    <string name="settings_register_and_login">注册并登录</string>
+
+    <string name="settings_sync_status">同步</string>
+    <string name="settings_sync_pending">待同步：%1$s</string>
+    <string name="settings_sync_last_upload">上次上传：%1$s</string>
+    <string name="settings_sync_last_pull">上次拉取：%1$s</string>
+    <string name="settings_sync_upload_now">上传到服务器</string>
+    <string name="settings_sync_pull_24h">拉取最近 24 小时</string>
+    <string name="settings_sync_action_running">进行中…</string>
+    <string name="settings_sync_action_done">完成：%1$s</string>
+    <string name="settings_sync_need_login">需要先登录后才能同步。</string>
+
     <string name="settings_open_app_settings">打开应用设置</string>
     <string name="settings_open_location_settings">打开定位设置</string>
     <string name="settings_section_data">数据管理</string>

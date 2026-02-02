@@ -3,6 +3,7 @@ package com.wayfarer.android.tracking
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.db.WayfarerDatabaseProvider
 import java.util.concurrent.Executor
@@ -13,6 +14,10 @@ class TrackPointRepository(
 ) {
     private val appContext = context.applicationContext
     private val dao = WayfarerDatabaseProvider.get(appContext).trackPointDao()
+
+    private fun resolvedUserId(): String {
+        return AuthStore.readUserId(appContext) ?: USER_ID_LOCAL
+    }
 
     private val ioExecutor: Executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -37,9 +42,10 @@ class TrackPointRepository(
     ) {
         ioExecutor.execute {
             val result = runCatching {
-                val total = dao.countAll()
-                val pending = dao.countPendingSync()
-                val latest = dao.latest(1).firstOrNull()?.recordedAtUtc
+                val userId = resolvedUserId()
+                val total = dao.countAllByUser(userId)
+                val pending = dao.countPendingSyncByUser(userId)
+                val latest = dao.latestByUser(userId, 1).firstOrNull()?.recordedAtUtc
                 TrackPointStats(
                     totalCount = total,
                     pendingSyncCount = pending,
@@ -60,7 +66,7 @@ class TrackPointRepository(
     ) {
         ioExecutor.execute {
             val result = runCatching {
-                dao.latest(limit)
+                dao.latestByUser(resolvedUserId(), limit)
             }
 
             mainHandler.post {
@@ -78,7 +84,7 @@ class TrackPointRepository(
     ) {
         ioExecutor.execute {
             val result = runCatching {
-                dao.range(startUtc = startUtc, endUtc = endUtc, limit = limit)
+                dao.rangeByUser(resolvedUserId(), startUtc = startUtc, endUtc = endUtc, limit = limit)
             }
 
             mainHandler.post {
@@ -100,5 +106,9 @@ class TrackPointRepository(
                 result.fold({ onDone() }, onError)
             }
         }
+    }
+
+    companion object {
+        private const val USER_ID_LOCAL = "local"
     }
 }

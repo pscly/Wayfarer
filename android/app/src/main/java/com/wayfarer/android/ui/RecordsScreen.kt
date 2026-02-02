@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.wayfarer.android.BuildConfig
+import com.wayfarer.android.api.ServerConfigStore
 import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.tracking.TrackingServiceController
 import com.wayfarer.android.tracking.TrackPointRepository
@@ -306,7 +307,7 @@ fun RecordsScreen() {
                     Text(
                         text = stringResource(
                             com.wayfarer.android.R.string.tracking_api_base_url,
-                            BuildConfig.WAYFARER_API_BASE_URL,
+                            ServerConfigStore.readBaseUrl(context),
                         ),
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,

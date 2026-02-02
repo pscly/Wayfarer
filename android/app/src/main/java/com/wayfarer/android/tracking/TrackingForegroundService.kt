@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import com.wayfarer.android.R
+import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.amap.AmapApiKey
 import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.tracking.fsm.SmartSamplingFsm
@@ -36,7 +37,7 @@ class TrackingForegroundService : Service(), LocationListener {
         private const val DEFAULT_INTERVAL_MS = 10_000L
         private const val DEFAULT_MIN_DISTANCE_M = 10f
 
-        // Until auth is wired, all points are stored under a single local user bucket.
+        // Fallback bucket for offline/unauthenticated points.
         private const val USER_ID_LOCAL = "local"
 
         private const val ACTIVITY_UPDATES_REQUEST_CODE = 2201
@@ -294,6 +295,8 @@ class TrackingForegroundService : Service(), LocationListener {
         val lat = location.latitude
         val lon = location.longitude
 
+        val userId = AuthStore.readUserId(this) ?: USER_ID_LOCAL
+
         val gcj02 = CoordTransform.wgs84ToGcj02BestEffort(
             context = this,
             latitudeWgs84 = lat,
@@ -302,7 +305,7 @@ class TrackingForegroundService : Service(), LocationListener {
         )
 
         val entity = TrackPointEntity(
-            userId = USER_ID_LOCAL,
+            userId = userId,
             clientPointId = clientPointId,
             recordedAtUtc = recordedAt,
             latitudeWgs84 = lat,
