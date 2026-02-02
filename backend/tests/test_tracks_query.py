@@ -19,11 +19,11 @@ def _register(client: TestClient, *, email: str, username: str, password: str) -
     assert r.status_code == 201, r.text
 
 
-def _login_access_token(client: TestClient, *, email: str, password: str) -> str:
+def _login_access_token(client: TestClient, *, username: str, password: str) -> str:
     # No Origin header => treated as Android/scripting, but still returns access token.
     r = client.post(
         "/v1/auth/login",
-        json={"email": email, "password": password},
+        json={"username": username, "password": password},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -99,7 +99,7 @@ def test_tracks_query_happy_path_orders_and_z_format(client: TestClient) -> None
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
     p1, p2 = _upload_two_points(client, access_token=access)
 
     r = client.get(
@@ -126,7 +126,7 @@ def test_tracks_query_pagination_limit_offset(client: TestClient) -> None:
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
     _p1, p2 = _upload_two_points(client, access_token=access)
 
     r = client.get(
@@ -145,7 +145,7 @@ def test_tracks_query_invalid_range_returns_400(client: TestClient) -> None:
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
 
     r = client.get(
         "/v1/tracks/query?start=2026-01-30T12:00:00Z&end=2026-01-30T12:00:00Z",
@@ -160,7 +160,7 @@ def test_tracks_query_filters_active_delete_range_edit(client: TestClient) -> No
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
     p1, p2 = _upload_two_points(client, access_token=access)
 
     user_id = _me_user_id(client, access_token=access)

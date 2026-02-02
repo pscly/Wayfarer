@@ -18,11 +18,11 @@ def _register(client: TestClient, *, email: str, username: str, password: str) -
     assert r.status_code == 201, r.text
 
 
-def _login_access_token(client: TestClient, *, email: str, password: str) -> str:
+def _login_access_token(client: TestClient, *, username: str, password: str) -> str:
     # No Origin header => treated as Android/scripting, but still returns access token.
     r = client.post(
         "/v1/auth/login",
-        json={"email": email, "password": password},
+        json={"username": username, "password": password},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -51,7 +51,7 @@ def test_tracks_batch_upload_two_points_idempotent(client: TestClient) -> None:
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
 
     p1 = str(uuid.uuid4())
     p2 = str(uuid.uuid4())
@@ -95,7 +95,7 @@ def test_tracks_batch_mixed_valid_and_invalid_items(client: TestClient) -> None:
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
 
     valid_id = str(uuid.uuid4())
     invalid_id = str(uuid.uuid4())

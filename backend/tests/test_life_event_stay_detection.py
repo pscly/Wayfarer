@@ -13,11 +13,11 @@ def _register(client: TestClient, *, email: str, username: str, password: str) -
     assert r.status_code == 201, r.text
 
 
-def _login_access_token(client: TestClient, *, email: str, password: str) -> str:
+def _login_access_token(client: TestClient, *, username: str, password: str) -> str:
     # No Origin header => treated as Android/scripting, but still returns access token.
     r = client.post(
         "/v1/auth/login",
-        json={"email": email, "password": password},
+        json={"username": username, "password": password},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -34,7 +34,7 @@ def test_life_event_stay_detects_exactly_5min_within_200m(client: TestClient) ->
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
 
     # Two points at the same location, exactly 5 minutes apart => STAY.
     p1 = str(uuid.uuid4())
@@ -77,7 +77,7 @@ def test_life_event_stay_does_not_detect_4m59s_within_200m(client: TestClient) -
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
 
     p1 = str(uuid.uuid4())
     p2 = str(uuid.uuid4())

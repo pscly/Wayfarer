@@ -13,11 +13,11 @@ def _register(client: TestClient, *, email: str, username: str, password: str) -
     assert r.status_code == 201, r.text
 
 
-def _login_access_token(client: TestClient, *, email: str, password: str) -> str:
+def _login_access_token(client: TestClient, *, username: str, password: str) -> str:
     # No Origin header => treated as Android/scripting, but still returns access token.
     r = client.post(
         "/v1/auth/login",
-        json={"email": email, "password": password},
+        json={"username": username, "password": password},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -36,7 +36,7 @@ def test_anti_cheat_impossible_step_rate_marks_later_point_dirty(
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
 
     # ~10m north in latitude (1 deg lat ~= 111,320m).
     lat1, lon1 = 31.2304, 121.4737
@@ -89,7 +89,7 @@ def test_anti_cheat_normal_walking_does_not_mark_points_dirty(
     username = f"u-{uuid.uuid4().hex}"
     password = "password123!"
     _register(client, email=email, username=username, password=password)
-    access = _login_access_token(client, email=email, password=password)
+    access = _login_access_token(client, username=username, password=password)
 
     # ~10m segment over 10s => ~1 m/s; 12 steps => ~0.83 m/step; 1.2 steps/s.
     lat1, lon1 = 31.2304, 121.4737

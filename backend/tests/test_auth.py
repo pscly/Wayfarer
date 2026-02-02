@@ -14,10 +14,10 @@ def _register(client: TestClient, *, email: str, username: str, password: str) -
     assert r.status_code == 201, r.text
 
 
-def _web_login(client: TestClient, *, email: str, password: str) -> str:
+def _web_login(client: TestClient, *, username: str, password: str) -> str:
     r = client.post(
         "/v1/auth/login",
-        json={"email": email, "password": password},
+        json={"username": username, "password": password},
         headers={"Origin": WEB_ORIGIN},
     )
     assert r.status_code == 200, r.text
@@ -37,7 +37,7 @@ def test_web_login_sets_cookies_and_no_refresh_in_body(client: TestClient) -> No
 
     r = client.post(
         "/v1/auth/login",
-        json={"email": "web@test.com", "password": "password123!"},
+        json={"username": "web", "password": "password123!"},
         headers={"Origin": WEB_ORIGIN},
     )
     assert r.status_code == 200, r.text
@@ -70,7 +70,7 @@ def test_web_refresh_requires_csrf_header(client: TestClient) -> None:
         username="csrf",
         password="password123!",
     )
-    _web_login(client, email="csrf@test.com", password="password123!")
+    _web_login(client, username="csrf", password="password123!")
 
     r = client.post(
         "/v1/auth/refresh",
@@ -87,7 +87,7 @@ def test_web_refresh_rejects_csrf_mismatch(client: TestClient) -> None:
         username="csrf2",
         password="password123!",
     )
-    _web_login(client, email="csrf2@test.com", password="password123!")
+    _web_login(client, username="csrf2", password="password123!")
 
     r = client.post(
         "/v1/auth/refresh",
@@ -104,7 +104,7 @@ def test_refresh_rotation_and_reuse_detection(client: TestClient) -> None:
         username="rot",
         password="password123!",
     )
-    _web_login(client, email="rot@test.com", password="password123!")
+    _web_login(client, username="rot", password="password123!")
 
     old_refresh = client.cookies.get("wf_refresh")
     old_csrf = client.cookies.get("wf_csrf")
@@ -159,7 +159,7 @@ def test_android_login_and_refresh_return_refresh_token_in_body(
     )
     r = client.post(
         "/v1/auth/login",
-        json={"email": "android@test.com", "password": "password123!"},
+        json={"username": "android", "password": "password123!"},
         # No Origin -> treated as Android/scripting.
     )
     assert r.status_code == 200, r.text

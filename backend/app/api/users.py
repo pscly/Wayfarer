@@ -12,8 +12,9 @@ router = APIRouter(prefix="/v1/users", tags=["users"])
 
 class MeResponse(BaseModel):
     user_id: str
-    email: str
     username: str
+    email: str | None
+    is_admin: bool
     created_at: str
 
 
@@ -24,7 +25,8 @@ async def me(user: User = Depends(get_current_user)) -> MeResponse:
         created_at = created_at.removesuffix("+00:00") + "Z"
     return MeResponse(
         user_id=str(user.id),
-        email=user.email,
         username=user.username,
+        email=user.email,
+        is_admin=bool(getattr(user, "is_admin", False)),
         created_at=created_at,
     )

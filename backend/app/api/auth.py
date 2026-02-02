@@ -32,19 +32,20 @@ router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
 
 class RegisterRequest(BaseModel):
-    email: str
     username: str
+    email: str | None = None
     password: str = Field(min_length=12)
 
 
 class RegisterResponse(BaseModel):
     user_id: str
-    email: str
     username: str
+    email: str | None
+    is_admin: bool
 
 
 class LoginRequest(BaseModel):
-    email: str
+    username: str
     password: str
 
 
@@ -135,7 +136,15 @@ async def register(
             status_code=400,
         )
 
-    user = User(email=payload.email, username=payload.username, hashed_password=hashed)
+    # First user becomes admin (bootstrap).
+    is_first = (await db.execute(select(User.id).limit(1))).first() is None
+
+    user = User(
+        email=payload.email,
+        username=payload.username,
+        hashed_password=hashed,
+        is_admin=is_first,
+    )
     db.add(user)
     try:
         await db.commit()
@@ -148,7 +157,10 @@ async def register(
         )
 
     return RegisterResponse(
-        user_id=str(user.id), email=user.email, username=user.username
+        user_id=str(user.id),
+        email=user.email,
+        username=user.username,
+        is_admin=bool(user.is_admin),
     )
 
 
@@ -160,12 +172,12 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     user = (
-        await db.execute(select(User).where(User.email == payload.email))
+        await db.execute(select(User).where(User.username == payload.username))
     ).scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise APIError(
             code="AUTH_INVALID_CREDENTIALS",
-            message="Invalid email or password",
+            message="Invalid username or password",
             status_code=401,
         )
 

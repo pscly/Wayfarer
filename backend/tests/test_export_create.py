@@ -13,9 +13,9 @@ def _register(client: TestClient, *, email: str, username: str, password: str) -
     assert r.status_code == 201, r.text
 
 
-def _android_login(client: TestClient, *, email: str, password: str) -> str:
+def _android_login(client: TestClient, *, username: str, password: str) -> str:
     # No Origin header -> treated as Android/scripting client.
-    r = client.post("/v1/auth/login", json={"email": email, "password": password})
+    r = client.post("/v1/auth/login", json={"username": username, "password": password})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get("access_token")
@@ -29,7 +29,7 @@ def test_post_export_creates_job_and_returns_202(client: TestClient) -> None:
         username="export",
         password="password123!",
     )
-    access = _android_login(client, email="export@test.com", password="password123!")
+    access = _android_login(client, username="export", password="password123!")
 
     r = client.post(
         "/v1/export",
