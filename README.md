@@ -113,6 +113,71 @@ Web Cookie + CORS（浏览器认证非常重要）：
 
 - `WAYFARER_AMAP_API_KEY`
 
+## 账号注册与登录（username）
+
+后端认证标识为 `username`（用户名）。
+
+规则：
+
+- 登录：使用 `username + password`
+- 注册：`email` 为可选（可为 `null` 或不传）
+- 密码长度：至少 12 位（后端强制）
+- 管理员：第一个成功注册的用户会自动成为管理员（bootstrap）
+
+### 注册
+
+`POST /v1/auth/register`
+
+示例：
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","email":null,"password":"password123!"}'
+```
+
+响应（示例）：
+
+```json
+{
+  "user_id": "...",
+  "username": "alice",
+  "email": null,
+  "is_admin": true
+}
+```
+
+### 登录
+
+`POST /v1/auth/login`
+
+示例：
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"password123!"}'
+```
+
+响应（示例）：
+
+```json
+{
+  "access_token": "..."
+}
+```
+
+### 管理员接口
+
+- `GET /v1/admin/users`：列出用户（管理员可用）
+- `PUT /v1/admin/users/{user_id}/admin`：授予/取消管理员（管理员可用）
+
+Web 控制台中：
+
+- `/register`：注册
+- `/login`：登录
+- `/admin/users`：用户管理（仅管理员会在顶部导航中看到入口）
+
 ## 认证机制（Web vs 非 Web 客户端）
 
 后端的 refresh token 有两种模式：
