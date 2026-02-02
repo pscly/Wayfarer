@@ -102,6 +102,32 @@ async function installBackendMock(page: any, counters: { refreshCalls: number })
       return;
     }
 
+    if (url.pathname === "/v1/users/me" && method === "GET") {
+      const authz = headers.authorization || "";
+      const ok =
+        authz === "Bearer token_login" || authz === "Bearer token_refreshed";
+      if (!ok) {
+        await route.fulfill({
+          status: 401,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "unauthorized" }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user_id: "u1",
+          username: "alice",
+          email: null,
+          is_admin: false,
+          created_at: new Date(seedNow - 10_000).toISOString(),
+        }),
+      });
+      return;
+    }
+
     if (url.pathname === "/v1/tracks/query" && method === "GET") {
       const authz = headers.authorization || "";
       const ok =
@@ -218,7 +244,7 @@ test("login flow -> tracks list renders (no external network)", async ({
   await installBackendMock(page, counters);
 
   await page.goto("/login");
-  await page.getByTestId("login-email").fill("user@example.com");
+  await page.getByTestId("login-username").fill("alice");
   await page.getByTestId("login-password").fill("pw");
   await page.getByTestId("login-submit").click();
 

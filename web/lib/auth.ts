@@ -1,8 +1,22 @@
 import { API_BASE_URL, ApiError } from "@/lib/api";
 
 export type LoginRequest = {
-  email: string;
+  username: string;
   password: string;
+};
+
+export type RegisterRequest = {
+  username: string;
+  email?: string | null;
+  password: string;
+};
+
+export type UserInfo = {
+  user_id: string;
+  username: string;
+  email?: string | null;
+  is_admin: boolean;
+  created_at?: string;
 };
 
 export type TokenResponse = {
@@ -58,6 +72,25 @@ export async function login(req: LoginRequest): Promise<string> {
   const data = (await res.json()) as TokenResponse;
   if (!data?.access_token) throw new Error("Login response missing access_token");
   return data.access_token;
+}
+
+export async function register(req: RegisterRequest): Promise<UserInfo> {
+  const res = await fetch(joinUrl(API_BASE_URL, "/v1/auth/register"), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(req),
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const bodyText = await readBodyText(res);
+    throw new ApiError("Register failed", res.status, bodyText);
+  }
+
+  return (await res.json()) as UserInfo;
 }
 
 export async function refresh(): Promise<string | null> {
