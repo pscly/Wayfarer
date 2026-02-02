@@ -417,24 +417,24 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `plan.md:1` - 现有总体计划格式与语气
 
   **Acceptance Criteria**:
-  - [ ] `powershell -NoProfile -Command "Test-Path '.sisyphus/deliverables'"` 输出 True
-  - [ ] `.sisyphus/deliverables/plan-supplement.md` 存在且包含目录
-  - [ ] 交付文档骨架包含全部固定一级标题（逐条校验）:
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Gap Inventory'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Spec Delta'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Android FSM'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Room Schema & Sync'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## API 规范'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Anti-Cheat'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## LifeEvent'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Weather Enrichment & Cache'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Web Map Performance'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Global Error Codes'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Export Job Lifecycle'"`
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '| GAP-' -SimpleMatch).Count"` 输出 >= 8
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'DELTA-' -SimpleMatch).Count"` 输出 >= 3
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ERR-' -SimpleMatch).Count"` 输出 >= 10
-  - [ ] 占位文案必须被覆盖（避免“标题存在但内容仍是占位”）：
+  - [x] `powershell -NoProfile -Command "Test-Path '.sisyphus/deliverables'"` 输出 True
+  - [x] `.sisyphus/deliverables/plan-supplement.md` 存在且包含目录
+  - [x] 交付文档骨架包含全部固定一级标题（逐条校验）:
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Gap Inventory'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Spec Delta'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Android FSM'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Room Schema & Sync'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## API 规范'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Anti-Cheat'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## LifeEvent'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Weather Enrichment & Cache'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Web Map Performance'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Global Error Codes'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '## Export Job Lifecycle'"`
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '| GAP-' -SimpleMatch).Count"` 输出 >= 8
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'DELTA-' -SimpleMatch).Count"` 输出 >= 3
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ERR-' -SimpleMatch).Count"` 输出 >= 10
+  - [x] 占位文案必须被覆盖（避免“标题存在但内容仍是占位”）：
     - `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '占位' -SimpleMatch).Count"` 输出 == 0
 
 - [x] 2. Android FSM 详细设计
@@ -471,22 +471,22 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `.sisyphus/plans/wayfarer-research-notes.md` - Section: `Android FSM（智能采样）`（本地可验证）
 
   **Acceptance Criteria**:
-  - [ ] FSM 章节包含状态表（含采样间隔、优先级、minDistance）
-  - [ ] 含 `stateDiagram-v2` 图示
-  - [ ] 含至少 5 条边界测试用例
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'TEST-FSM-' -SimpleMatch).Count"` 输出 >= 5
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'stateDiagram-v2'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'STATIONARY.*120s'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'WALKING.*5s'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'RUNNING.*3s'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*50m'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*5m'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*3m'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*20m'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'speed <0\.5 m/s'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'speed >2\.5 m/s'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '离线'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'GPS-only'"`
+  - [x] FSM 章节包含状态表（含采样间隔、优先级、minDistance）
+  - [x] 含 `stateDiagram-v2` 图示
+  - [x] 含至少 5 条边界测试用例
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'TEST-FSM-' -SimpleMatch).Count"` 输出 >= 5
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'stateDiagram-v2'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'STATIONARY.*120s'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'WALKING.*5s'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'RUNNING.*3s'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*50m'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*5m'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*3m'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'minDistance.*20m'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'speed <0\.5 m/s'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'speed >2\.5 m/s'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '离线'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'GPS-only'"`
 
 - [x] 3. Room Schema + Sync 详细设计
 
@@ -538,23 +538,23 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `.sisyphus/plans/wayfarer-research-notes.md` - Section: `Track Point Identity` + `Room/Sync`（幂等/回执/队列/部分成功）
 
   **Acceptance Criteria**:
-  - [ ] 包含 SQL DDL 段落（至少 3 张表）
-  - [ ] 包含 sync_status 状态定义与转换条件
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'CREATE TABLE').Count"` 输出 >= 3
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'track_points_local'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'sync_queue'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'recorded_at\+geom'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '字段映射'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'payload_sha256'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'attempt_count'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'next_retry_at'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'rejected\[\]'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'client_point_id'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'UNIQUE\(user_id, client_point_id\)'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ALTER TABLE track_points'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'round\(lat, 5\)'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'latitude'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'longitude'"`
+  - [x] 包含 SQL DDL 段落（至少 3 张表）
+  - [x] 包含 sync_status 状态定义与转换条件
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'CREATE TABLE').Count"` 输出 >= 3
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'track_points_local'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'sync_queue'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'recorded_at\+geom'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '字段映射'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'payload_sha256'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'attempt_count'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'next_retry_at'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'rejected\[\]'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'client_point_id'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'UNIQUE\(user_id, client_point_id\)'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ALTER TABLE track_points'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'round\(lat, 5\)'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'latitude'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'longitude'"`
 
 - [x] 4. API 规范 + 认证 + 导出生命周期
 
@@ -687,54 +687,54 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `.sisyphus/plans/wayfarer-research-notes.md` - Section: `API Error Codes`（ERR-*）
 
   **Acceptance Criteria**:
-  - [ ] 每个 API 至少包含 Method/Path/Request/Response/Error Codes
-  - [ ] 至少 5 个 curl 示例
-  - [ ] 导出任务生命周期含状态图或时序图
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ERR-' -SimpleMatch).Count"` 输出 >= 10
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'curl -X').Count"` 输出 >= 5
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '15m'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '30d'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'CSV/GPX/GeoJSON/KML'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/auth/login'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/tracks/query'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/tracks/edits'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'life_event_recompute_on_edit: false'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'pagination: limit_offset'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cookie_refresh_name: wf_refresh'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cookie_csrf_name: wf_csrf'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'dev_cookie_secure: false'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cors_allow_origin: http://localhost:3000'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cors_allow_credentials: true'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'frontend_credentials: include'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/settings'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'email TEXT UNIQUE NOT NULL'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/life-events'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/export/{job_id}'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'AUTH_INVALID_CREDENTIALS'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'trace_id'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'PARTIAL'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'refresh_tokens'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'family_id'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'replaced_by'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'AUTH_REFRESH_REUSED'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'CSRF'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'X-CSRF-Token'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'double-submit'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'HS256'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'kid'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'argon2id'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '202'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'timezone'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'Asia/Shanghai'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'recorded_at\(UTC\)'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'accepted_ids'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'rejected\[\]'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'reason_code'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'retention_metadata\s*:\s*7 天'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'retention_artifact\s*:\s*24 小时'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'artifact_dir'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'max_concurrent_exports'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'max_export_points'"`
+  - [x] 每个 API 至少包含 Method/Path/Request/Response/Error Codes
+  - [x] 至少 5 个 curl 示例
+  - [x] 导出任务生命周期含状态图或时序图
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ERR-' -SimpleMatch).Count"` 输出 >= 10
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'curl -X').Count"` 输出 >= 5
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '15m'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '30d'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'CSV/GPX/GeoJSON/KML'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/auth/login'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/tracks/query'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/tracks/edits'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'life_event_recompute_on_edit: false'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'pagination: limit_offset'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cookie_refresh_name: wf_refresh'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cookie_csrf_name: wf_csrf'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'dev_cookie_secure: false'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cors_allow_origin: http://localhost:3000'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'cors_allow_credentials: true'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'frontend_credentials: include'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/settings'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'email TEXT UNIQUE NOT NULL'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/life-events'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '/v1/export/{job_id}'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'AUTH_INVALID_CREDENTIALS'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'trace_id'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'PARTIAL'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'refresh_tokens'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'family_id'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'replaced_by'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'AUTH_REFRESH_REUSED'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'CSRF'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'X-CSRF-Token'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'double-submit'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'HS256'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'kid'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'argon2id'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '202'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'timezone'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'Asia/Shanghai'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'recorded_at\(UTC\)'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'accepted_ids'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'rejected\[\]'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'reason_code'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'retention_metadata\s*:\s*7 天'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'retention_artifact\s*:\s*24 小时'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'artifact_dir'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'max_concurrent_exports'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'max_export_points'"`
 
 - [x] 5. 反作弊算法与阈值设计
 
@@ -766,13 +766,13 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `.sisyphus/plans/wayfarer-plan-supplement.md` - Section: `反作弊阈值 (速度/步幅)`（阈值默认值与范围）
 
   **Acceptance Criteria**:
-  - [ ] 阈值表包含 walking/running/vehicle 边界
-  - [ ] 至少 6 条边界测试用例
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'TEST-ANTICHEAT-' -SimpleMatch).Count"` 输出 >= 6
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '步幅'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '0\.5'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '2\.5'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '8\.3'"`
+  - [x] 阈值表包含 walking/running/vehicle 边界
+  - [x] 至少 6 条边界测试用例
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'TEST-ANTICHEAT-' -SimpleMatch).Count"` 输出 >= 6
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '步幅'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '0\.5'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '2\.5'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '8\.3'"`
 
 - [x] 6. LifeEvent 自动标记算法
 
@@ -804,13 +804,13 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `.sisyphus/plans/wayfarer-plan-supplement.md` - Section: `LifeEvent (停留点/家/办公)`（默认参数）
 
   **Acceptance Criteria**:
-  - [ ] 包含 stay point 参数表（时间/距离阈值）
-  - [ ] 包含 Home/Work 评分规则
-  - [ ] 至少 4 条算法边界测试
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'TEST-LIFEEVENT-' -SimpleMatch).Count"` 输出 >= 4
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '200m'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '5 min'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '21:00'"`
+  - [x] 包含 stay point 参数表（时间/距离阈值）
+  - [x] 包含 Home/Work 评分规则
+  - [x] 至少 4 条算法边界测试
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'TEST-LIFEEVENT-' -SimpleMatch).Count"` 输出 >= 4
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '200m'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '5 min'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '21:00'"`
 
 - [x] 7. 天气回溯与缓存策略
 
@@ -844,11 +844,11 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `.sisyphus/plans/wayfarer-research-notes.md` - Section: `Open-Meteo（历史天气回溯）`（本地可验证）
 
   **Acceptance Criteria**:
-  - [ ] 包含 Rate Limit 数字与退避策略
-  - [ ] 明确 geohash 精度与缓存键示例
-  - [ ] 定义失败降级行为
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '600/min'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'geohash_precision\s*:\s*5'"`
+  - [x] 包含 Rate Limit 数字与退避策略
+  - [x] 明确 geohash 精度与缓存键示例
+  - [x] 定义失败降级行为
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '600/min'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'geohash_precision\s*:\s*5'"`
 
 - [x] 8. Web Mapbox 性能设计
 
@@ -889,18 +889,18 @@ Critical Path: Task 1 → Task 4 → Task 8
   - `.sisyphus/plans/wayfarer-research-notes.md` - Section: `Mapbox（Web 轨迹渲染性能）`（本地可验证）
 
   **Acceptance Criteria**:
-  - [ ] 包含点位规模阈值表（50K/100K/1M+）
-  - [ ] 明确至少 3 项优化策略
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'OPT-WEBMAP-' -SimpleMatch).Count"` 输出 >= 3
-  - [ ] 含性能指标（首屏时间/帧率/内存）
-  - [ ] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'SLA-WEBMAP-' -SimpleMatch).Count"` 输出 >= 3
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '50K'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '100K'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '1M'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'P95'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ms'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'fps'"`
-  - [ ] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'MB'"`
+  - [x] 包含点位规模阈值表（50K/100K/1M+）
+  - [x] 明确至少 3 项优化策略
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'OPT-WEBMAP-' -SimpleMatch).Count"` 输出 >= 3
+  - [x] 含性能指标（首屏时间/帧率/内存）
+  - [x] `powershell -NoProfile -Command "(Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'SLA-WEBMAP-' -SimpleMatch).Count"` 输出 >= 3
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '50K'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '100K'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern '1M'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'P95'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'ms'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'fps'"`
+  - [x] `powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan-supplement.md' -Pattern 'MB'"`
 
 ---
 
@@ -1000,17 +1000,17 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `plan.md:14` - 总体技术栈
 
   **Acceptance Criteria**:
-  - [ ] `run.bat` 存在且可启动：启动 backend/web 后，等待 healthz=200 并退出码 0
-  - [ ] `stop.bat` 存在且可停止：停止 backend/web（含子进程）并退出码 0；重复执行也应返回 0（幂等）
-  - [ ] `.env.example` 存在且不含真实密钥
-  - [ ] （若提供 docker-compose.yml）`docker compose config` 退出码 0
-  - [ ] `.env.example` 至少包含这些键名（可为空值）：
+  - [x] `run.bat` 存在且可启动：启动 backend/web 后，等待 healthz=200 并退出码 0
+  - [x] `stop.bat` 存在且可停止：停止 backend/web（含子进程）并退出码 0；重复执行也应返回 0（幂等）
+  - [x] `.env.example` 存在且不含真实密钥
+  - [ ] （若提供 docker-compose.yml）`docker compose config` 退出码 0（本机未安装 docker，暂无法验证）
+  - [x] `.env.example` 至少包含这些键名（可为空值）：
     - `WAYFARER_JWT_SIGNING_KEYS_JSON`
     - `WAYFARER_JWT_KID_CURRENT`
     - `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`
     - `WAYFARER_AMAP_API_KEY`
 
-  - [ ] `.sisyphus/run/` 被 git 忽略（防止密钥误提交）：
+  - [x] `.sisyphus/run/` 被 git 忽略（防止密钥误提交）：
     - `git check-ignore -q .sisyphus/run/jwt-signing-keys.json` 退出码 0
 
   **Commit**: YES
@@ -1032,9 +1032,9 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - **Skills**: ["git-master"]
 
   **Acceptance Criteria**:
-  - [ ] `uv run python -c "import fastapi"` 退出码 0
-  - [ ] `uv run python -c "import app"` 退出码 0
-  - [ ] `powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing http://localhost:8000/healthz).StatusCode"` 输出 200
+  - [x] `uv run python -c "import fastapi"` 退出码 0
+  - [x] `uv run python -c "import app"` 退出码 0
+  - [x] `powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing http://localhost:8000/healthz).StatusCode"` 输出 200
 
   **Commit**: YES
   - Message: `feat(backend): 初始化 FastAPI 服务与健康检查`
@@ -1078,8 +1078,8 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md:1` - 补充设计规范（生成后作为实现依据）
 
   **Acceptance Criteria**:
-  - [ ] `uv run alembic upgrade head` 在 SQLite 环境退出码 0（采用 sqlite 降级策略）
-  - [ ] （可选）若提供 `WAYFARER_DB_URL` 指向 PostgreSQL：`uv run alembic upgrade head` 在 PostgreSQL 环境也能通过（按是否启用 PostGIS 走不同迁移分支/降级策略）
+  - [x] `uv run alembic upgrade head` 在 SQLite 环境退出码 0（采用 sqlite 降级策略）
+  - [ ] （可选）若提供 `WAYFARER_DB_URL` 指向 PostgreSQL：`uv run alembic upgrade head` 在 PostgreSQL 环境也能通过（按是否启用 PostGIS 走不同迁移分支/降级策略）（本机未配置 `WAYFARER_DB_URL`，暂无法验证）
 
   **Commit**: YES
   - Message: `feat(backend): 建立核心数据模型与迁移`
@@ -1098,14 +1098,14 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/plans/wayfarer-plan-supplement.md` - Section: `Env Var Contract`（JWT keys/kid 的配置口径）
 
   **Acceptance Criteria**:
-  - [ ] `uv run pytest -k auth` 覆盖：注册/登录/刷新/复用检测
-  - [ ] 必须包含以下可观察断言（避免“跑了 pytest 但没测到 CSRF/rotation 生效”）：
+  - [x] `uv run pytest -k auth` 覆盖：注册/登录/刷新/复用检测
+  - [x] 必须包含以下可观察断言（避免“跑了 pytest 但没测到 CSRF/rotation 生效”）：
     - refresh 缺少 `X-CSRF-Token` → 失败（HTTP + 业务码）
     - CSRF header 与 csrf cookie 不一致 → 失败
     - refresh rotation：旧 refresh 立即失效
     - reuse detection：复用已撤销 refresh → 触发 family revoke（并返回 `AUTH_REFRESH_REUSED` 或等价业务码）
     - Web cookie 属性可验证（至少检查 Set-Cookie 包含 httpOnly/SameSite/Secure 预期）
-  - [ ] `powershell -NoProfile -Command "$base='http://localhost:8000'; $b=@{email='e2e@test.com';password='password123!'}|ConvertTo-Json; (Invoke-RestMethod -Method Post -Uri ($base+'/v1/auth/login') -ContentType 'application/json' -Body $b).access_token"` 返回非空
+  - [x] `powershell -NoProfile -Command "$base='http://localhost:8000'; $u=('e2e_'+(Get-Date -Format 'yyyyMMddHHmmss')); $pw='password123!'; Invoke-RestMethod -Method Post -Uri ($base+'/v1/auth/register') -ContentType 'application/json' -Body (@{username=$u; email=$null; password=$pw} | ConvertTo-Json); (Invoke-RestMethod -Method Post -Uri ($base+'/v1/auth/login') -ContentType 'application/json' -Body (@{username=$u; password=$pw} | ConvertTo-Json)).access_token"` 返回非空
 
   **Commit**: YES
   - Message: `feat(backend): 实现 JWT 认证与 refresh rotation`
@@ -1131,8 +1131,8 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## Global Error Codes`（TRACK_BATCH_*、EDIT_* 等业务码）
 
   **Acceptance Criteria**:
-  - [ ] `uv run pytest -k tracks` 通过（覆盖 batch/query/edits 的最小用例）
-  - [ ] 重复上传同一 client_point_id 不产生重复记录
+  - [x] `uv run pytest -k tracks` 通过（覆盖 batch/query/edits 的最小用例）
+  - [x] 重复上传同一 client_point_id 不产生重复记录
 
   **Commit**: YES
   - Message: `feat(backend): 支持轨迹批量上传与幂等回执`
@@ -1151,10 +1151,10 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## API 规范`（如需要暴露审计状态字段/查询，必须按 spec）
 
   **Acceptance Criteria**:
-  - [ ] 无 Docker 验收口径（Design Default）：
+  - [x] 无 Docker 验收口径（Design Default）：
     - 开发环境默认 `WAYFARER_CELERY_EAGER=1`，审计/后台任务可在同进程同步执行
     - `uv run pytest -k anti_cheat` 通过
-  - [ ] 若环境具备 Redis/Celery worker（可选）：补充启动方式与额外集成测试
+  - [ ] 若环境具备 Redis/Celery worker（可选）：补充启动方式与额外集成测试（本机未配置 Redis/worker，暂未验证）
 
   **Commit**: YES
   - Message: `feat(backend): 集成 Celery 并实现反作弊审计`
@@ -1173,8 +1173,8 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## Global Error Codes`（EXPORT_*、RATE_LIMITED 等业务码）
 
   **Acceptance Criteria**:
-  - [ ] `uv run pytest -k export` 通过
-  - [ ] 生成 job 后可下载文件（非空）
+  - [x] `uv run pytest -k export` 通过
+  - [x] 生成 job 后可下载文件（非空）
 
   **Commit**: YES
   - Message: `feat(backend): 实现导出 Job 与多格式导出`
@@ -1190,7 +1190,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## Export Job Lifecycle`（PARTIAL 语义与产物标记）
 
   **Acceptance Criteria**:
-  - [ ] `uv run pytest -k weather` 通过
+  - [x] `uv run pytest -k weather` 通过
 
   **Commit**: YES
   - Message: `feat(backend): 天气回溯缓存与导出填充`
@@ -1206,7 +1206,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## API 规范`（/v1/life-events CRUD schema 与错误码）
 
   **Acceptance Criteria**:
-  - [ ] `uv run pytest -k life_event` 通过
+  - [x] `uv run pytest -k life_event` 通过
 
   **Commit**: YES
   - Message: `feat(backend): LifeEvent 自动识别与接口`
@@ -1234,8 +1234,8 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/plans/wayfarer-plan-supplement.md` - Section: `Env Var Contract`（NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN 的降级行为）
 
   **Acceptance Criteria**:
-  - [ ] `npm run build` 退出码 0
-  - [ ] `npx playwright test` 基础用例通过（mock 后端）
+  - [x] `npm run build` 退出码 0
+  - [x] `npx playwright test` 基础用例通过（mock 后端）
 
   **Commit**: YES
   - Message: `feat(web): 初始化 Next.js 前端与登录流程`
@@ -1249,7 +1249,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
     - 平滑：Design Default 先做前端可视化平滑（不落库）；如后续要服务端化，补充文档需先扩展 edits 类型
 
   **Acceptance Criteria**:
-  - [ ] Playwright 用例：选择区间 → 删除 → 地图点数减少
+- [x] Playwright 用例：选择区间 → 删除 → 地图点数减少
 
   **References**:
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## API 规范`（tracks/edits 的 DELETE_RANGE 契约）
@@ -1268,7 +1268,7 @@ powershell -NoProfile -Command "Select-String -Path '.sisyphus/deliverables/plan
   - `.sisyphus/deliverables/plan-supplement.md` - Section: `## API 规范`（/v1/export 与 /v1/export/{job_id}/download）
 
   **Acceptance Criteria**:
-  - [ ] Playwright 用例：创建导出任务 → 等待 SUCCEEDED → 下载成功
+- [x] Playwright 用例：创建导出任务 → 等待 SUCCEEDED → 下载成功
 
   **Commit**: YES
   - Message: `feat(web): 导出向导与任务进度`
