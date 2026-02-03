@@ -183,6 +183,88 @@ jobs:
             exit 1
           fi
 
+          escape_sed_regex() {
+            # Escape string for sed ERE pattern context.
+            # Escapes: []\/.^$*+?(){}|
+            printf '%s' "$1" | sed -e 's/[][\\\/\.\^\$\*\+\?\(\)\{\}\|]/\\&/g'
+          }
+
+          sanitize_ssh_stderr() {
+            # Best-effort redaction: never print raw host/user values.
+            local f="$1"
+            local host_escaped user_escaped port_escaped
+            host_escaped="$(escape_sed_regex "$HOST")"
+            user_escaped="$(escape_sed_regex "$SSH_USER")"
+            port_escaped="$(escape_sed_regex "$PORT")"
+
+            sed -E \
+              -e "s/\\[${host_escaped}\\]:${port_escaped}/<HOST>:<PORT>/g" \
+              -e "s/${user_escaped}/<SSH_USER>/g" \
+              -e "s/${host_escaped}/<HOST>/g" \
+              "$f"
+          }
+
+          classify_ssh_stderr() {
+            local f="$1"
+
+            if grep -qiE 'Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED' "$f"; then
+              echo 'host_key'
+              return 0
+            fi
+            if grep -qiE 'Permission denied|Authentication failed|Too many authentication failures' "$f"; then
+              echo 'auth'
+              return 0
+            fi
+            if grep -qiE 'Could not resolve hostname|Name or service not known|Temporary failure in name resolution' "$f"; then
+              echo 'dns'
+              return 0
+            fi
+            if grep -qiE 'Connection timed out|No route to host|Network is unreachable|Operation timed out' "$f"; then
+              echo 'network'
+              return 0
+            fi
+            if grep -qiE 'Connection refused' "$f"; then
+              echo 'refused'
+              return 0
+            fi
+            if grep -qiE 'kex_exchange_identification|connection closed by remote host' "$f"; then
+              echo 'handshake'
+              return 0
+            fi
+
+            echo 'unknown'
+          }
+
+          ssh_kind_hint() {
+            case "$1" in
+              host_key)
+                echo 'Host key verification failed: confirm KNOWN_HOSTS is pinned for the deploy host, or the host key changed.'
+                ;;
+              auth)
+                echo 'Authentication failed: verify CI private key matches server authorized_keys and USER is correct (values not printed).'
+                ;;
+              dns)
+                echo 'DNS resolution failed: verify HOST is resolvable/reachable from the runner network.'
+                ;;
+              network)
+                echo 'Network timeout/unreachable: verify port is open, firewall/routing, and target host is online.'
+                ;;
+              refused)
+                echo 'Connection refused: verify SSH is listening on the port and firewall/security group allows it.'
+                ;;
+              handshake)
+                echo 'Handshake error: may be firewall/rate-limit or incompatible SSH configuration.'
+                ;;
+              *)
+                echo 'Unknown SSH error: inspect the sanitized stderr excerpt.'
+                ;;
+            esac
+          }
+
+          SSH_ERR_FILE="${RUNNER_TEMP:-/tmp}/ssh-stderr-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}.log"
+          rm -f "$SSH_ERR_FILE" || true
+          trap 'rm -f "$SSH_ERR_FILE" >/dev/null 2>&1 || true' EXIT
+
           if ! ssh \
             -i ~/.ssh/id_ci \
             -p "$PORT" \
@@ -191,7 +273,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$SSH_USER@$HOST" \
-            "REPO_DIR='$REPO_DIR' TARGET_SHA='$TARGET_SHA' bash -s" <<'EOF' 2>/dev/null
+            "REPO_DIR='$REPO_DIR' TARGET_SHA='$TARGET_SHA' bash -s" <<'EOF' 2>"$SSH_ERR_FILE"
           set -euo pipefail
 
           LOCK_WAIT_SECONDS=600
@@ -381,11 +463,20 @@ jobs:
              echo "Rollback did not restore health (PREV_SHA=$PREV_SHA)."
            fi
 
-           # Exit non-zero to fail the job even if rollback succeeded.
-           exit 1
-           EOF
-           then
-             # Avoid leaking hostnames in SSH error output.
-             echo "SSH remote deploy failed (details suppressed to avoid leaking host)."
-             exit 1
-           fi
+            # Exit non-zero to fail the job even if rollback succeeded.
+            exit 1
+            EOF
+            then
+              ssh_kind="$(classify_ssh_stderr "$SSH_ERR_FILE")"
+              echo "::error title=Deploy (remote) SSH failed::SSH deploy failed (sanitized). kind=${ssh_kind}."
+              echo "$(ssh_kind_hint "$ssh_kind")"
+
+              echo "::group::SSH stderr (sanitized, first 30 lines)"
+              if [[ -s "$SSH_ERR_FILE" ]]; then
+                sanitize_ssh_stderr "$SSH_ERR_FILE" | head -n 30
+              else
+                echo "(ssh stderr is empty)"
+              fi
+              echo "::endgroup::"
+              exit 1
+            fi
