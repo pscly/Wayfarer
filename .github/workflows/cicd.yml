@@ -137,7 +137,13 @@ jobs:
       group: deploy-main
       cancel-in-progress: false
     timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup SSH (key + known_hosts)
         shell: bash
         env:
@@ -146,7 +152,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # KNOWN_HOSTS is mandatory (pinned host keys); keep StrictHostKeyChecking enabled.
+          # Use pinned host keys; keep StrictHostKeyChecking enabled.
+          # Prefer secret-provided known_hosts; fall back to repo-pinned `.github/known_hosts`.
           HOST='${{ secrets.HOST }}'
           PORT='${{ secrets.PORT }}'
 
@@ -163,9 +170,10 @@ jobs:
 
           if [[ -n "${KNOWN_HOSTS//[[:space:]]/}" ]]; then
             printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          elif [[ -f ".github/known_hosts" ]]; then
+            tr -d '\r' < .github/known_hosts > ~/.ssh/known_hosts
           else
-            echo "::error::Missing required secret: KNOWN_HOSTS (pinned SSH host keys)."
-            echo "::error::Set the KNOWN_HOSTS secret to a pinned known_hosts entry for the deploy host."
+            echo "::error::Missing pinned known_hosts. Provide secrets.KNOWN_HOSTS or commit .github/known_hosts."
             exit 1
           fi
           chmod 600 ~/.ssh/known_hosts
@@ -497,3 +505,35 @@ jobs:
             fi
 
             rm -f "$SSH_ERR_FILE" || true
+
+      - name: Report deploy status (issue #1)
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DEPLOYED_SHA: ${{ github.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATUS_RAW: ${{ job.status }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY' | curl -fsS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPO}/issues/1/comments" \
+            -d @-
+          import json
+          import os
+
+          status_raw = os.environ.get('STATUS_RAW', '').strip().lower()
+          status = 'success' if status_raw == 'success' else 'failure'
+
+          body = (
+              f"deployed_sha: {os.environ['DEPLOYED_SHA']}\n"
+              f"run_url: {os.environ['RUN_URL']}\n"
+              f"status: {status}"
+          )
+          print(json.dumps({"body": body}))
+          PY
