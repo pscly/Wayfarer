@@ -300,14 +300,14 @@ jobs:
             exit 0
           fi
 
-           if [[ -n "$(git status --porcelain)" ]]; then
-             echo "Repo has local modifications; creating safety stash before deploy."
-             # Stash local changes so checkout cannot fail; keep .env in place for docker compose.
-             if ! git stash push -u -m "ci: preflight stash before deploy $TARGET_SHA" -- . ":(exclude).env" >/dev/null 2>&1; then
-               echo "Failed to create safety stash; refusing to deploy."
-               exit 1
-             fi
-           fi
+            if [[ -n "$(git status --porcelain)" ]]; then
+              echo "Repo has local modifications; creating safety stash before deploy."
+              # Stash local changes so checkout cannot fail; keep .env in place for docker compose.
+              if ! git stash push -u -m "ci: preflight stash before deploy $TARGET_SHA" >/dev/null 2>&1; then
+                echo "Failed to create safety stash; refusing to deploy."
+                exit 1
+              fi
+            fi
 
            # Capture the currently deployed revision before switching to TARGET_SHA.
            PREV_SHA="$(git rev-parse HEAD)"
