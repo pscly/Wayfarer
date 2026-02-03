@@ -9,6 +9,8 @@ services:
       - .env
     environment:
       TZ: Asia/Shanghai
+      WAYFARER_MIGRATE_ON_START: "1"
+      WAYFARER_MIGRATE_STRICT: "1"
     volumes:
       - ./data/backend:/app/backend/data
     ports:

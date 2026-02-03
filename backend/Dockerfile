@@ -23,6 +23,6 @@ RUN chmod +x /app/backend/docker-entrypoint.sh
 EXPOSE 8000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=120s --retries=20 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()" || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz').read()" || exit 1
 
 ENTRYPOINT ["/app/backend/docker-entrypoint.sh"]
