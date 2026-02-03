@@ -3,6 +3,17 @@ import { expect, test } from "@playwright/test";
 const WEB_ORIGINS = new Set(["http://localhost:3000", "http://127.0.0.1:3000"]);
 const API_ORIGINS = new Set(["http://localhost:8000", "http://127.0.0.1:8000"]);
 
+type BackendMockOptions = {
+  register?: {
+    onRequest?: (payload: any) => void;
+    response?: {
+      status: number;
+      body: any;
+      contentType?: string;
+    };
+  };
+};
+
 async function installExternalNetworkBlock(page: any) {
   await page.route("**/*", async (route: any) => {
     const url = route.request().url();
@@ -26,7 +37,11 @@ async function installExternalNetworkBlock(page: any) {
   });
 }
 
-async function installBackendMock(page: any, counters: { refreshCalls: number }) {
+async function installBackendMock(
+  page: any,
+  counters: { refreshCalls: number },
+  options: BackendMockOptions = {},
+) {
   const seedNow = Date.now();
   const points = [
     {
@@ -68,11 +83,60 @@ async function installBackendMock(page: any, counters: { refreshCalls: number })
     const method = req.method();
     const headers = req.headers();
 
+     // Capture JSON request bodies for assertions.
+     function tryParseJsonBody(): any {
+       try {
+         return JSON.parse(req.postData() || "null");
+       } catch {
+         return null;
+       }
+     }
+
+     // Helper for overriding responses per-test.
+     async function fulfillJson(status: number, body: any, contentType?: string) {
+       const resolvedContentType = contentType ?? "application/json";
+       const resolvedBody =
+         typeof body === "string" ? body : JSON.stringify(body ?? null);
+       await route.fulfill({
+         status,
+         contentType: resolvedContentType,
+         body: resolvedBody,
+       });
+     }
+
     if (url.pathname === "/v1/auth/login" && method === "POST") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ access_token: "token_login" }),
+      });
+      return;
+    }
+
+    if (url.pathname === "/v1/auth/register" && method === "POST") {
+      const payload = tryParseJsonBody();
+      options.register?.onRequest?.(payload);
+
+      const forced = options.register?.response;
+      if (forced) {
+        await fulfillJson(forced.status, forced.body, forced.contentType);
+        return;
+      }
+
+      const email =
+        payload && Object.prototype.hasOwnProperty.call(payload, "email")
+          ? payload.email
+          : null;
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user_id: "u_new",
+          username: payload?.username ?? "new_user",
+          email,
+          is_admin: false,
+        }),
       });
       return;
     }
@@ -177,12 +241,7 @@ async function installBackendMock(page: any, counters: { refreshCalls: number })
         return;
       }
 
-      let payload: any = null;
-      try {
-        payload = JSON.parse(req.postData() || "null");
-      } catch {
-        // ignore
-      }
+      const payload = tryParseJsonBody();
       if (!payload || payload.type !== "DELETE_RANGE") {
         await route.fulfill({
           status: 400,
@@ -224,6 +283,92 @@ async function installBackendMock(page: any, counters: { refreshCalls: number })
     });
   });
 }
+
+test("register flow -> auto-login -> tracks list renders", async ({
+  page,
+  context,
+}) => {
+  // CSRF cookie is shared across ports on localhost.
+  await context.addCookies([
+    {
+      name: "wf_csrf",
+      value: "csrf123",
+      domain: "localhost",
+      path: "/",
+    },
+  ]);
+
+  let registerPayload: any = null;
+  const counters = { refreshCalls: 0 };
+  await installExternalNetworkBlock(page);
+  await installBackendMock(page, counters, {
+    register: {
+      onRequest: (payload) => {
+        registerPayload = payload;
+      },
+    },
+  });
+
+  await page.goto("/register");
+  await page.getByTestId("register-username").fill("alice");
+  // Leave email blank; UI sends `email: null`.
+  await page.getByTestId("register-password").fill("password123!");
+  const confirm = page.getByTestId("register-password-confirm");
+  if ((await confirm.count()) > 0) {
+    await confirm.fill("password123!");
+  }
+  await page.getByTestId("register-submit").click();
+
+  await expect.poll(() => registerPayload).not.toBeNull();
+  expect(Object.prototype.hasOwnProperty.call(registerPayload, "email")).toBe(
+    true,
+  );
+  expect(registerPayload.email).toBeNull();
+
+  await expect(page).toHaveURL(/\/tracks$/);
+  await expect(page.getByTestId("tracks-count")).toHaveText("3");
+  expect(counters.refreshCalls).toBe(0);
+});
+
+test("register error is user-safe and includes trace id", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([
+    {
+      name: "wf_csrf",
+      value: "csrf123",
+      domain: "localhost",
+      path: "/",
+    },
+  ]);
+
+  const counters = { refreshCalls: 0 };
+  await installExternalNetworkBlock(page);
+  await installBackendMock(page, counters, {
+    register: {
+      response: {
+        status: 500,
+        body: { code: "INTERNAL_ERROR", trace_id: "t123" },
+      },
+    },
+  });
+
+  await page.goto("/register");
+  await page.getByTestId("register-username").fill("alice");
+  await page.getByTestId("register-password").fill("password123!");
+  const confirm = page.getByTestId("register-password-confirm");
+  if ((await confirm.count()) > 0) {
+    await confirm.fill("password123!");
+  }
+  await page.getByTestId("register-submit").click();
+
+  const err = page.getByTestId("register-error");
+  await expect(err).toBeVisible();
+  await expect(err).toContainText("参考编号：t123");
+  await expect(err).not.toContainText("{");
+  await expect(err).not.toContainText('"code"');
+});
 
 test("login flow -> tracks list renders (no external network)", async ({
   page,

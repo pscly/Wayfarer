@@ -12,6 +12,25 @@ import { FieldHint, FieldLabel } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Notice } from "@/components/ui/Notice";
 
+function getLoginErrorMessage(err: unknown): string {
+  const base = "登录失败，请稍后再试。";
+
+  if (!(err instanceof ApiError)) return base;
+  if (err.status === 401) return "用户名或密码错误";
+
+  // ApiError.bodyText may contain JSON; never display it raw.
+  if (!err.bodyText) return base;
+  try {
+    const parsed: unknown = JSON.parse(err.bodyText);
+    if (!parsed || typeof parsed !== "object") return base;
+    const traceId = (parsed as { trace_id?: unknown }).trace_id;
+    if (typeof traceId !== "string" || !traceId.trim()) return base;
+    return `${base}参考编号：${traceId.trim()}`;
+  } catch {
+    return base;
+  }
+ }
+
 export default function LoginPage() {
   const router = useRouter();
   const { accessToken, isHydrating, login } = useAuth();
@@ -34,13 +53,7 @@ export default function LoginPage() {
       await login(username, password);
       router.replace("/tracks");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.bodyText || `登录失败（${err.status}）`);
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("登录失败");
-      }
+      setError(getLoginErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -71,9 +84,6 @@ export default function LoginPage() {
               placeholder="yourname"
               required
             />
-            <FieldHint className="mt-2">
-              用于后端登录；示例：alice
-            </FieldHint>
           </label>
 
           <label className="block">
@@ -86,7 +96,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-            <FieldHint className="mt-2">大小写敏感。</FieldHint>
+            <FieldHint className="mt-2">大小写敏感</FieldHint>
           </label>
 
           {error ? (

@@ -24,6 +24,22 @@ function formatDateTime(iso: string): string {
   return new Date(t).toLocaleString("zh-CN", { hour12: false });
 }
 
+function getAdminUsersErrorMessage(err: unknown, base: string): string {
+  if (!(err instanceof ApiError)) return base;
+
+  // ApiError.bodyText may contain JSON; never display it raw.
+  if (!err.bodyText) return base;
+  try {
+    const parsed: unknown = JSON.parse(err.bodyText);
+    if (!parsed || typeof parsed !== "object") return base;
+    const traceId = (parsed as { trace_id?: unknown }).trace_id;
+    if (typeof traceId !== "string" || !traceId.trim()) return base;
+    return `${base}参考编号：${traceId.trim()}`;
+  } catch {
+    return base;
+  }
+}
+
 export default function AdminUsersPage() {
   const router = useRouter();
   const { accessToken, isHydrating, refresh, me, isMeLoading } = useAuth();
@@ -79,13 +95,7 @@ export default function AdminUsersPage() {
         if (!cancelled) setItems(Array.isArray(data) ? data : []);
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof ApiError) {
-          setError(err.bodyText || `加载失败（${err.status}）`);
-        } else if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError("加载失败");
-        }
+        setError(getAdminUsersErrorMessage(err, "加载失败，请稍后再试。"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -117,13 +127,7 @@ export default function AdminUsersPage() {
         prev.map((u) => (u.user_id === updated.user_id ? updated : u)),
       );
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.bodyText || `更新失败（${err.status}）`);
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("更新失败");
-      }
+      setError(getAdminUsersErrorMessage(err, "更新失败，请稍后再试。"));
     } finally {
       setSavingId(null);
     }
@@ -176,15 +180,9 @@ export default function AdminUsersPage() {
                       { method: "GET" },
                       { accessToken: token, refreshAccessToken: refresh },
                     );
-                    setItems(Array.isArray(data) ? data : []);
+                   setItems(Array.isArray(data) ? data : []);
                   } catch (err) {
-                    if (err instanceof ApiError) {
-                      setError(err.bodyText || `加载失败（${err.status}）`);
-                    } else if (err instanceof Error) {
-                      setError(err.message);
-                    } else {
-                      setError("加载失败");
-                    }
+                    setError(getAdminUsersErrorMessage(err, "加载失败，请稍后再试。"));
                   } finally {
                     setLoading(false);
                   }

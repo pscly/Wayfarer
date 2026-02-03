@@ -14,6 +14,24 @@ import { FieldHint, FieldLabel } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Notice } from "@/components/ui/Notice";
 
+function getRegisterErrorMessage(err: unknown): string {
+  const base = "注册失败，请稍后再试。";
+
+  if (!(err instanceof ApiError)) return base;
+
+  // ApiError.bodyText may contain JSON; never display it raw.
+  if (!err.bodyText) return base;
+  try {
+    const parsed: unknown = JSON.parse(err.bodyText);
+    if (!parsed || typeof parsed !== "object") return base;
+    const traceId = (parsed as { trace_id?: unknown }).trace_id;
+    if (typeof traceId !== "string" || !traceId.trim()) return base;
+    return `${base}参考编号：${traceId.trim()}`;
+  } catch {
+    return base;
+  }
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const { accessToken, isHydrating, login } = useAuth();
@@ -43,13 +61,7 @@ export default function RegisterPage() {
       await login(username, password);
       router.replace("/tracks");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.bodyText || `注册失败（${err.status}）`);
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("注册失败");
-      }
+      setError(getRegisterErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -74,7 +86,6 @@ export default function RegisterPage() {
                 placeholder="alice"
                 required
               />
-              <FieldHint className="mt-2">必填；用于登录与显示。</FieldHint>
             </label>
 
             <label className="block">
@@ -87,7 +98,6 @@ export default function RegisterPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
               />
-              <FieldHint className="mt-2">可不填；用于找回/通知等用途。</FieldHint>
             </label>
 
             <label className="block">
@@ -98,10 +108,9 @@ export default function RegisterPage() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                minLength={12}
                 required
               />
-              <FieldHint className="mt-2">至少 12 位；大小写敏感。</FieldHint>
+              <FieldHint className="mt-2">大小写敏感</FieldHint>
             </label>
 
             {error ? (
