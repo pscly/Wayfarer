@@ -233,11 +233,6 @@ fun SettingsScreen() {
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                             enabled = !authBusy,
                         )
-                        Text(
-                            text = "密码至少 12 位。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 },
                 confirmButton = {
