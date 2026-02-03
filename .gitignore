@@ -2,6 +2,8 @@
 .sisyphus/run/
 .sisyphus/run/jwt-signing-keys.json
 .sisyphus/.tmp/
+.sisyphus/drafts/
+.sisyphus/notepads/
 
 # Environment files
 .env
