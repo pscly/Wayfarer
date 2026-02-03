@@ -139,11 +139,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${KNOWN_HOSTS}" ]]; then
-            echo "Missing required secret: KNOWN_HOSTS."
-            echo "Please set it to a pinned known_hosts entry for the deploy host (StrictHostKeyChecking stays enabled)."
-            exit 1
-          fi
+          # Fallback inputs for ssh-keyscan if KNOWN_HOSTS is not provided.
+          HOST='${{ secrets.HOST }}'
+          PORT='${{ secrets.PORT }}'
+
           if [[ -z "${SSH_PRIVATE_KEY}" ]]; then
             echo "Missing required secret: CI (SSH private key)."
             exit 1
@@ -154,7 +153,18 @@ jobs:
           # Write secrets without printing them; normalize CRLF just in case.
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ci
           chmod 600 ~/.ssh/id_ci
-          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+
+          if [[ -n "${KNOWN_HOSTS}" ]]; then
+            printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          else
+            # Do not print scanned host keys; write directly to the file.
+            ssh-keyscan -p "$PORT" "$HOST" 1> ~/.ssh/known_hosts 2>/dev/null || true
+            if [[ ! -s ~/.ssh/known_hosts ]]; then
+              echo "KNOWN_HOSTS secret is empty and ssh-keyscan fallback failed (or returned no keys)."
+              echo "Set KNOWN_HOSTS to a pinned known_hosts entry for the deploy host (StrictHostKeyChecking stays enabled)."
+              exit 1
+            fi
+          fi
           chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy (remote)
