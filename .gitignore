@@ -4,6 +4,8 @@
 .sisyphus/.tmp/
 .sisyphus/drafts/
 .sisyphus/notepads/
+# Local downloaded tooling (gh.exe, archives)
+.sisyphus/tools/
 
 # Environment files
 .env
@@ -43,6 +45,7 @@ web/.turbo/
 kotlin-lsp.cmd
 /kotlin-lsp.exe
 /%CLONE_DIR%/
+export.cmd
 
 # Tool caches / temp (local only)
 /.tmp/

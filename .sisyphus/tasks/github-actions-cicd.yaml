@@ -1,0 +1,29 @@
+# Progress tracker for plan: github-actions-cicd
+# Note: This file exists because .sisyphus/plans/*.md is treated as read-only.
+
+tasks:
+  - id: 0
+    name: Validate Deploy Connectivity (public host in secrets)
+    done: true
+    notes: "GitHub Actions job validate-deploy-connectivity succeeded (nc reachability)."
+  - id: 1
+    name: Implement CI Jobs (backend/web/android) in .github/workflows/cicd.yml
+    done: true
+  - id: 2
+    name: Implement Deploy Job in .github/workflows/cicd.yml
+    done: true
+  - id: 3
+    name: SSH Host Key Pinning + Secrets Hygiene
+    done: false
+    notes: "Still blocked: workflow now fails early if KNOWN_HOSTS secret is missing (no ssh-keyscan fallback). Must provide pinned host key(s) via KNOWN_HOSTS secret; StrictHostKeyChecking remains mandatory."
+  - id: 4
+    name: Server Preflight + .env Audit (one-time hardening)
+    done: true
+    notes: "Server 192.168.12.52: compose up --build OK; /readyz and web / OK."
+  - id: 5
+    name: Rollback + Diagnostics on Failed Deploy
+    done: true
+  - id: 6
+    name: End-to-End Verification via GitHub Actions + Remote Health
+    done: false
+    notes: "Still pending: workflow supports manual workflow_dispatch with input deploy (default false); deploy runs only when explicitly opted-in. Need a successful run with deploy=true plus remote health verification."
