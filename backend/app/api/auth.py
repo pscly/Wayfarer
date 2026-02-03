@@ -5,7 +5,7 @@ import uuid
 
 import jwt
 from fastapi import APIRouter, Body, Depends, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +34,9 @@ router = APIRouter(prefix="/v1/auth", tags=["auth"])
 class RegisterRequest(BaseModel):
     username: str
     email: str | None = None
-    password: str = Field(min_length=12)
+    # Do not enforce password policy via schema validation; we return a generic
+    # 400 business error from the handler to avoid leaking policy details.
+    password: str
 
 
 class RegisterResponse(BaseModel):

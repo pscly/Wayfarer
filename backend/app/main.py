@@ -22,6 +22,17 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Wayfarer API")
 
+    def _with_trace_id_header(
+        headers: dict[str, str] | None, trace_id: str | None
+    ) -> dict[str, str] | None:
+        """Return headers merged with X-Trace-Id when trace_id is present."""
+
+        if not trace_id:
+            return headers
+        merged: dict[str, str] = dict(headers or {})
+        merged["X-Trace-Id"] = trace_id
+        return merged
+
     # Minimal dev CORS contract (localhost web dev) from plan-supplement.
     app.add_middleware(
         CORSMiddleware,
@@ -44,6 +55,7 @@ def create_app() -> FastAPI:
         trace_id = getattr(request.state, "trace_id", None)
         return JSONResponse(
             status_code=exc.status_code,
+            headers=_with_trace_id_header(None, trace_id),
             content=make_error_payload(
                 code=exc.code,
                 message=exc.message,
@@ -57,6 +69,7 @@ def create_app() -> FastAPI:
         trace_id = getattr(request.state, "trace_id", None)
         return JSONResponse(
             status_code=422,
+            headers=_with_trace_id_header(None, trace_id),
             content=make_error_payload(
                 code="VALIDATION_ERROR",
                 message="Request validation failed",
@@ -70,6 +83,7 @@ def create_app() -> FastAPI:
         trace_id = getattr(request.state, "trace_id", None)
         return JSONResponse(
             status_code=exc.status_code,
+            headers=_with_trace_id_header(None, trace_id),
             content=make_error_payload(
                 code="HTTP_ERROR",
                 message=exc.detail if isinstance(exc.detail, str) else "HTTP error",
@@ -81,14 +95,26 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def _unhandled_error_handler(request, exc: Exception):
         trace_id = getattr(request.state, "trace_id", None)
-        # Log unexpected exceptions with trace_id for server-side debugging.
+        # Log unexpected exceptions with trace_id + request metadata for server-side debugging.
+        method = getattr(request, "method", None)
+        path = getattr(getattr(request, "url", None), "path", None)
+
+        # Surface the failing endpoint to clients without changing the JSON schema.
+        # Keep this intentionally minimal (no query string, no body).
+        headers = None
+        if isinstance(method, str) and isinstance(path, str) and method and path:
+            headers = {"X-Error-Path": f"{method} {path}"}
+        headers = _with_trace_id_header(headers, trace_id)
         logger.error(
-            "Unhandled exception (trace_id=%s)",
+            "Unhandled exception (trace_id=%s method=%s path=%s)",
             trace_id,
+            method,
+            path,
             exc_info=(type(exc), exc, exc.__traceback__),
         )
         return JSONResponse(
             status_code=500,
+            headers=headers,
             content=make_error_payload(
                 code="INTERNAL_ERROR",
                 message="Internal error",

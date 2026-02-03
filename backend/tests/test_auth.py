@@ -27,6 +27,53 @@ def _web_login(client: TestClient, *, username: str, password: str) -> str:
     return body["access_token"]
 
 
+def _register_expects_400_invalid_credentials(
+    client: TestClient, *, email: str, username: str, password: str
+) -> None:
+    r = client.post(
+        "/v1/auth/register",
+        json={"email": email, "username": username, "password": password},
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["code"] == "AUTH_INVALID_CREDENTIALS"
+
+
+def test_register_rejects_password_too_short(client: TestClient) -> None:
+    _register_expects_400_invalid_credentials(
+        client,
+        email="pwshort@test.com",
+        username="pwshort",
+        password="a1b2c",
+    )
+
+
+def test_register_rejects_password_missing_digit(client: TestClient) -> None:
+    _register_expects_400_invalid_credentials(
+        client,
+        email="pw_nodigit@test.com",
+        username="pw_nodigit",
+        password="abcdef",
+    )
+
+
+def test_register_rejects_password_missing_ascii_letter(client: TestClient) -> None:
+    _register_expects_400_invalid_credentials(
+        client,
+        email="pw_noletter@test.com",
+        username="pw_noletter",
+        password="123456",
+    )
+
+
+def test_register_accepts_compliant_password(client: TestClient) -> None:
+    _register(
+        client,
+        email="pw_ok@test.com",
+        username="pw_ok",
+        password="abc123!",
+    )
+
+
 def test_web_login_sets_cookies_and_no_refresh_in_body(client: TestClient) -> None:
     _register(
         client,

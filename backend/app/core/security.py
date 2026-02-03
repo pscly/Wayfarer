@@ -24,8 +24,18 @@ _pwd_hasher = PasswordHasher(time_cost=2, memory_cost=102400, parallelism=8)
 
 def hash_password(password: str) -> str:
     # Enforce policy in code even if request validation is bypassed.
-    if len(password) < 12:
+    # Policy: >= 6 chars, at least one ASCII letter and one ASCII digit.
+    # Special characters are allowed.
+    if len(password) < 6:
         raise ValueError("password_too_short")
+
+    has_letter = any(("A" <= ch <= "Z") or ("a" <= ch <= "z") for ch in password)
+    if not has_letter:
+        raise ValueError("password_missing_ascii_letter")
+
+    has_digit = any("0" <= ch <= "9" for ch in password)
+    if not has_digit:
+        raise ValueError("password_missing_ascii_digit")
     return _pwd_hasher.hash(password)
 
 
