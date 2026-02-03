@@ -9,6 +9,7 @@ from logging.config import fileConfig
 
 import sqlalchemy as sa
 from alembic import context  # type: ignore[attr-defined]
+from alembic.ddl.postgresql import PostgresqlImpl  # type: ignore[attr-defined]
 from sqlalchemy import engine_from_config, pool
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,84 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+
+ALEMBIC_VERSION_NUM_MAXLEN = 255
+
+
+class WayfarerPostgresqlImpl(PostgresqlImpl):
+    """自定义 Alembic 在 PostgreSQL 下创建的版本表结构。
+
+    Alembic 默认把 `alembic_version.version_num` 定义为 `VARCHAR(32)`；
+    但本项目的 revision id 采用可读字符串（如 `0003_user_admin_and_optional_email`），
+    长度可能超过 32，导致迁移在更新版本号时直接失败。
+    """
+
+    __dialect__ = "postgresql"
+
+    def version_table_impl(
+        self,
+        *,
+        version_table: str,
+        version_table_schema: str | None,
+        version_table_pk: bool,
+        **kw: object,
+    ) -> sa.Table:
+        vt = sa.Table(
+            version_table,
+            sa.MetaData(),
+            sa.Column(
+                "version_num",
+                sa.String(ALEMBIC_VERSION_NUM_MAXLEN),
+                nullable=False,
+            ),
+            schema=version_table_schema,
+        )
+        if version_table_pk:
+            vt.append_constraint(
+                sa.PrimaryKeyConstraint(
+                    "version_num", name=f"{version_table}_pkc"
+                )
+            )
+        return vt
+
+
+def _ensure_alembic_version_num_len(connection: sa.Connection) -> None:
+    """兼容已存在的 PostgreSQL 数据库：自动扩容版本表字段长度。
+
+    - 新库：通过 `WayfarerPostgresqlImpl.version_table_impl()` 创建即为 255，无需处理
+    - 老库：若 `alembic_version.version_num` 仍是 VARCHAR(32)，则迁移到长 revision id 时会失败
+    """
+
+    if connection.dialect.name != "postgresql":
+        return
+
+    # 约定：本项目版本表默认在 public schema（未显式指定 version_table_schema）。
+    # 注意：SQLAlchemy 2.x 默认会在首次 execute 时 autobegin 一个事务；
+    # 若这里不显式提交，后续 Alembic 的事务边界可能被“外层事务”包住，
+    # 导致迁移看似执行成功但在连接关闭时被回滚。
+    with connection.begin():
+        connection.execute(
+            sa.text(
+                f"""
+DO $$
+DECLARE
+  cur_len integer;
+BEGIN
+  SELECT character_maximum_length
+  INTO cur_len
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'alembic_version'
+    AND column_name = 'version_num';
+
+  IF cur_len IS NOT NULL AND cur_len < {ALEMBIC_VERSION_NUM_MAXLEN} THEN
+    EXECUTE 'ALTER TABLE public.alembic_version ALTER COLUMN version_num TYPE VARCHAR({ALEMBIC_VERSION_NUM_MAXLEN})';
+  END IF;
+END $$;
+"""
+            )
+        )
 
 
 def _make_sync_url(url: str) -> str:
@@ -75,6 +154,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        _ensure_alembic_version_num_len(connection)
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
