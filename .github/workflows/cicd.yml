@@ -1,0 +1,381 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Least-privilege: CI jobs only need to read repository contents.
+permissions:
+  contents: read
+
+jobs:
+  validate-deploy-connectivity:
+    runs-on: ubuntu-latest
+    # Safety gate: only runs on pushes to main (never on PR).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Validate deploy host reachability (nc)
+        env:
+          HOST: ${{ secrets.HOST }}
+          PORT: ${{ secrets.PORT }}
+        run: |
+          # Do not print host/port; keep stdout/stderr fully suppressed.
+          nc -z -w 5 "$HOST" "$PORT" >/dev/null 2>&1
+
+  backend-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/pyproject.toml
+            backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  web-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+  android-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: Unit tests
+        run: ./gradlew test
+
+  deploy:
+    runs-on: ubuntu-latest
+    # Safety gate: only deploy on pushes to main (never on PR).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - validate-deploy-connectivity
+      - backend-ci
+      - web-ci
+      - android-ci
+    concurrency:
+      group: deploy-main
+      cancel-in-progress: false
+    timeout-minutes: 30
+    steps:
+      - name: Setup SSH (key + known_hosts)
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.CI }}
+          KNOWN_HOSTS: ${{ secrets.KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${KNOWN_HOSTS}" ]]; then
+            echo "Missing required secret: KNOWN_HOSTS."
+            echo "Please set it to a pinned known_hosts entry for the deploy host (StrictHostKeyChecking stays enabled)."
+            exit 1
+          fi
+          if [[ -z "${SSH_PRIVATE_KEY}" ]]; then
+            echo "Missing required secret: CI (SSH private key)."
+            exit 1
+          fi
+
+          install -d -m 700 ~/.ssh
+
+          # Write secrets without printing them; normalize CRLF just in case.
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ci
+          chmod 600 ~/.ssh/id_ci
+          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy (remote)
+        shell: bash
+        env:
+          HOST: ${{ secrets.HOST }}
+          PORT: ${{ secrets.PORT }}
+          SSH_USER: ${{ secrets.USER }}
+          REPO_DIR: /root/dockers/1wayfarer
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${HOST:-}" || -z "${PORT:-}" || -z "${SSH_USER:-}" ]]; then
+            echo "Missing required deploy secrets: HOST/PORT/USER."
+            exit 1
+          fi
+
+          if ! ssh \
+            -i ~/.ssh/id_ci \
+            -p "$PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$SSH_USER@$HOST" \
+            "REPO_DIR='$REPO_DIR' TARGET_SHA='$TARGET_SHA' bash -s" <<'EOF' 2>/dev/null
+          set -euo pipefail
+
+          LOCK_WAIT_SECONDS=600
+          LOCK_FILE="/tmp/wayfarer-deploy.lock"
+          LOCK_DIR="/tmp/wayfarer-deploy.lockdir"
+
+          acquire_lock() {
+            if command -v flock >/dev/null 2>&1; then
+              # Keep FD 9 open for the duration of the script.
+              exec 9>"$LOCK_FILE"
+              flock -w "$LOCK_WAIT_SECONDS" 9
+              return 0
+            fi
+
+            # Fallback if flock is not installed.
+            for ((i=0; i<LOCK_WAIT_SECONDS; i++)); do
+              if mkdir "$LOCK_DIR" 2>/dev/null; then
+                trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+                return 0
+              fi
+              sleep 1
+            done
+
+            echo "Failed to acquire deploy lock within ${LOCK_WAIT_SECONDS}s."
+            return 1
+          }
+
+          require_cmd() {
+            local cmd="$1"
+            if ! command -v "$cmd" >/dev/null 2>&1; then
+              echo "Missing required tool: $cmd"
+              exit 1
+            fi
+          }
+
+          require_cmd git
+          require_cmd docker
+          require_cmd curl
+          require_cmd grep
+          require_cmd tail
+          require_cmd tr
+
+          if ! docker compose version >/dev/null 2>&1; then
+            echo "Missing required tool: docker compose"
+            exit 1
+          fi
+
+          if [[ -z "${REPO_DIR:-}" || -z "${TARGET_SHA:-}" ]]; then
+            echo "Internal error: REPO_DIR/TARGET_SHA not set."
+            exit 1
+          fi
+
+          acquire_lock
+
+          if [[ ! -d "$REPO_DIR" ]]; then
+            echo "Repo directory does not exist: $REPO_DIR"
+            exit 1
+          fi
+
+          cd "$REPO_DIR"
+
+          if [[ ! -d .git ]]; then
+            echo "Not a git repository: $REPO_DIR"
+            exit 1
+          fi
+          if [[ ! -f .env ]]; then
+            echo "Missing .env in $REPO_DIR (deploy requires env_file)."
+            exit 1
+          fi
+
+          require_env_nonempty() {
+            local key="$1"
+            local line val
+
+            line="$(grep -E "^${key}=" .env | tail -n 1 || true)"
+            if [[ -z "$line" ]]; then
+              echo "Missing required env var in .env: $key"
+              exit 1
+            fi
+
+            val="${line#*=}"
+            val="$(printf '%s' "$val" | tr -d '\r')"
+
+            if [[ "$val" =~ ^\".*\"$ ]]; then
+              val="${val:1:${#val}-2}"
+            elif [[ "$val" =~ ^\'.*\'$ ]]; then
+              val="${val:1:${#val}-2}"
+            fi
+
+            # Reject empty or whitespace-only values without ever printing them.
+            if [[ -z "${val//[[:space:]]/}" ]]; then
+              echo "Empty required env var in .env: $key"
+              exit 1
+            fi
+          }
+
+          require_env_nonempty WAYFARER_JWT_SIGNING_KEYS_JSON
+          require_env_nonempty WAYFARER_JWT_KID_CURRENT
+          require_env_nonempty NEXT_PUBLIC_API_BASE_URL
+
+          # Deploy what was tested: only proceed if this workflow SHA is still the tip of origin/main.
+          git fetch --quiet origin main
+          origin_tip="$(git rev-parse origin/main)"
+          if [[ "$origin_tip" != "$TARGET_SHA" ]]; then
+            echo "Stale deploy: workflow SHA is not origin/main tip; skipping."
+            exit 0
+          fi
+
+           if [[ -n "$(git status --porcelain)" ]]; then
+             echo "Repo has local modifications; creating safety stash before deploy."
+             # Stash local changes so checkout cannot fail; keep .env in place for docker compose.
+             if ! git stash push -u -m "ci: preflight stash before deploy $TARGET_SHA" -- . ":(exclude).env" >/dev/null 2>&1; then
+               echo "Failed to create safety stash; refusing to deploy."
+               exit 1
+             fi
+           fi
+
+           # Capture the currently deployed revision before switching to TARGET_SHA.
+           PREV_SHA="$(git rev-parse HEAD)"
+           if ! git cat-file -e "${PREV_SHA}^{commit}" >/dev/null 2>&1; then
+             echo "Failed to resolve PREV_SHA; refusing to deploy."
+             exit 1
+           fi
+
+           git checkout --detach --quiet "$TARGET_SHA"
+           if [[ "$(git rev-parse HEAD)" != "$TARGET_SHA" ]]; then
+             echo "Checkout mismatch; refusing to deploy."
+             exit 1
+           fi
+
+           docker compose up -d --build
+
+          wait_http_ok() {
+            local url="$1"
+            local name="$2"
+            local attempts=30
+            local sleep_seconds=2
+
+            for ((i=1; i<=attempts; i++)); do
+              if curl -fsS "$url" >/dev/null 2>&1; then
+                echo "$name is healthy."
+                return 0
+              fi
+              sleep "$sleep_seconds"
+            done
+
+            echo "$name failed health check after ${attempts} attempts."
+            return 1
+           }
+
+           deploy_ok=1
+           if ! wait_http_ok "http://127.0.0.1:18000/readyz" "backend /readyz"; then
+             deploy_ok=0
+           fi
+           if ! wait_http_ok "http://127.0.0.1:13000/" "web /"; then
+             deploy_ok=0
+           fi
+
+           if [[ "$deploy_ok" -eq 1 ]]; then
+             exit 0
+           fi
+
+           echo "Deploy failed health gate for TARGET_SHA=$TARGET_SHA; attempting rollback to PREV_SHA=$PREV_SHA."
+
+           rollback_ok=0
+           if git checkout --detach --quiet "$PREV_SHA" && docker compose up -d --build; then
+             rollback_health_ok=1
+             if ! wait_http_ok "http://127.0.0.1:18000/readyz" "backend /readyz (post-rollback)"; then
+               rollback_health_ok=0
+             fi
+             if ! wait_http_ok "http://127.0.0.1:13000/" "web / (post-rollback)"; then
+               rollback_health_ok=0
+             fi
+             if [[ "$rollback_health_ok" -eq 1 ]]; then
+               rollback_ok=1
+             fi
+           fi
+
+           echo "Diagnostics (post-rollback attempt): docker compose ps"
+           docker compose ps || true
+           echo "Diagnostics (post-rollback attempt): docker compose logs --tail 200 wayfarer-backend wayfarer-web"
+           docker compose logs --tail 200 wayfarer-backend wayfarer-web || true
+
+           if [[ "$rollback_ok" -eq 1 ]]; then
+             echo "Rollback succeeded and health restored (PREV_SHA=$PREV_SHA)."
+           else
+             echo "Rollback did not restore health (PREV_SHA=$PREV_SHA)."
+           fi
+
+           # Exit non-zero to fail the job even if rollback succeeded.
+           exit 1
+           EOF
+           then
+             # Avoid leaking hostnames in SSH error output.
+             echo "SSH remote deploy failed (details suppressed to avoid leaking host)."
+             exit 1
+           fi
