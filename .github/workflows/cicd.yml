@@ -183,87 +183,7 @@ jobs:
             exit 1
           fi
 
-          escape_sed_regex() {
-            # Escape string for sed ERE pattern context.
-            # Escapes: []\/.^$*+?(){}|
-            printf '%s' "$1" | sed -e 's/[][\\\/\.\^\$\*\+\?\(\)\{\}\|]/\\&/g'
-          }
-
-          sanitize_ssh_stderr() {
-            # Best-effort redaction: never print raw host/user values.
-            local f="$1"
-            local host_escaped user_escaped port_escaped
-            host_escaped="$(escape_sed_regex "$HOST")"
-            user_escaped="$(escape_sed_regex "$SSH_USER")"
-            port_escaped="$(escape_sed_regex "$PORT")"
-
-            sed -E \
-              -e "s/\\[${host_escaped}\\]:${port_escaped}/<HOST>:<PORT>/g" \
-              -e "s/${user_escaped}/<SSH_USER>/g" \
-              -e "s/${host_escaped}/<HOST>/g" \
-              "$f"
-          }
-
-          classify_ssh_stderr() {
-            local f="$1"
-
-            if grep -qiE 'Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED' "$f"; then
-              echo 'host_key'
-              return 0
-            fi
-            if grep -qiE 'Permission denied|Authentication failed|Too many authentication failures' "$f"; then
-              echo 'auth'
-              return 0
-            fi
-            if grep -qiE 'Could not resolve hostname|Name or service not known|Temporary failure in name resolution' "$f"; then
-              echo 'dns'
-              return 0
-            fi
-            if grep -qiE 'Connection timed out|No route to host|Network is unreachable|Operation timed out' "$f"; then
-              echo 'network'
-              return 0
-            fi
-            if grep -qiE 'Connection refused' "$f"; then
-              echo 'refused'
-              return 0
-            fi
-            if grep -qiE 'kex_exchange_identification|connection closed by remote host' "$f"; then
-              echo 'handshake'
-              return 0
-            fi
-
-            echo 'unknown'
-          }
-
-          ssh_kind_hint() {
-            case "$1" in
-              host_key)
-                echo 'Host key verification failed: confirm KNOWN_HOSTS is pinned for the deploy host, or the host key changed.'
-                ;;
-              auth)
-                echo 'Authentication failed: verify CI private key matches server authorized_keys and USER is correct (values not printed).'
-                ;;
-              dns)
-                echo 'DNS resolution failed: verify HOST is resolvable/reachable from the runner network.'
-                ;;
-              network)
-                echo 'Network timeout/unreachable: verify port is open, firewall/routing, and target host is online.'
-                ;;
-              refused)
-                echo 'Connection refused: verify SSH is listening on the port and firewall/security group allows it.'
-                ;;
-              handshake)
-                echo 'Handshake error: may be firewall/rate-limit or incompatible SSH configuration.'
-                ;;
-              *)
-                echo 'Unknown SSH error: inspect the sanitized stderr excerpt.'
-                ;;
-            esac
-          }
-
-          SSH_ERR_FILE="${RUNNER_TEMP:-/tmp}/ssh-stderr-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}.log"
-          rm -f "$SSH_ERR_FILE" || true
-          trap 'rm -f "$SSH_ERR_FILE" >/dev/null 2>&1 || true' EXIT
+          SSH_ERR_FILE="$(mktemp)"
 
           if ! ssh \
             -i ~/.ssh/id_ci \
@@ -467,16 +387,63 @@ jobs:
             exit 1
             EOF
             then
-              ssh_kind="$(classify_ssh_stderr "$SSH_ERR_FILE")"
-              echo "::error title=Deploy (remote) SSH failed::SSH deploy failed (sanitized). kind=${ssh_kind}."
-              echo "$(ssh_kind_hint "$ssh_kind")"
+              python - "$SSH_ERR_FILE" <<'PY'
+          import os
+          import re
+          import sys
 
-              echo "::group::SSH stderr (sanitized, first 30 lines)"
-              if [[ -s "$SSH_ERR_FILE" ]]; then
-                sanitize_ssh_stderr "$SSH_ERR_FILE" | head -n 30
-              else
-                echo "(ssh stderr is empty)"
-              fi
-              echo "::endgroup::"
+          path = sys.argv[1]
+          try:
+              data = open(path, 'r', errors='replace').read().splitlines()
+          except FileNotFoundError:
+              data = []
+
+          host = os.environ.get('HOST', '')
+          user = os.environ.get('SSH_USER', '')
+          port = os.environ.get('PORT', '')
+
+          # Keep only likely-useful SSH error lines; fallback to first 30 lines.
+          patterns = [
+              r'Host key verification failed',
+              r'REMOTE HOST IDENTIFICATION HAS CHANGED',
+              r'Permission denied',
+              r'Authentication failed',
+              r'Too many authentication failures',
+              r'kex_exchange_identification',
+              r'Connection timed out',
+              r'Connection refused',
+              r'No route to host',
+              r'Network is unreachable',
+              r'Could not resolve hostname',
+              r'Name or service not known',
+              r'Temporary failure in name resolution',
+              r'WARNING',
+          ]
+
+          sel = [ln for ln in data if any(re.search(p, ln, re.I) for p in patterns)]
+          if not sel:
+              sel = data[:30]
+
+          text = "\n".join(sel)
+
+          # Redact host/user/port without printing raw values.
+          if host and port:
+              text = text.replace(f'[{host}]:{port}', '<HOST>:<PORT>')
+          if user and host:
+              text = text.replace(f'{user}@{host}', '<SSH_USER>@<HOST>')
+          if user:
+              text = text.replace(user, '<SSH_USER>')
+          if host:
+              text = text.replace(host, '<HOST>')
+          if port:
+              text = text.replace(f' port {port}', ' port <PORT>')
+              text = text.replace(f':{port}', ':<PORT>')
+
+          print('SSH remote deploy failed. Sanitized stderr (excerpt):')
+          print(text)
+          PY
+              rm -f "$SSH_ERR_FILE" || true
               exit 1
             fi
+
+            rm -f "$SSH_ERR_FILE" || true
