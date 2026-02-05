@@ -2,6 +2,7 @@ package com.wayfarer.android.api
 
 import android.content.Context
 import com.wayfarer.android.BuildConfig
+import java.net.URI
 
 object ServerConfigStore {
     private const val PREFS_NAME = "wayfarer_server_config"
@@ -38,16 +39,62 @@ object ServerConfigStore {
     }
 
     fun normalizeBaseUrl(raw: String): String {
+        return normalizeBaseUrlOrNull(raw) ?: raw.trim().trimEnd('/')
+    }
+
+    /**
+     * 尝试把用户输入规范化为可用的 base URL（只包含 scheme + host + 可选 port）。
+     *
+     * - 空字符串表示“清空 override”（合法）。
+     * - 返回 null 表示输入明显不合法（例如 host 缺失、格式不可解析）。
+     */
+    fun normalizeBaseUrlOrNull(raw: String): String? {
         var out = raw.trim()
-        if (out.isBlank()) return out
+        if (out.isBlank()) return ""
 
         if (!out.startsWith("http://") && !out.startsWith("https://")) {
             out = "https://$out"
         }
 
-        while (out.endsWith("/")) {
-            out = out.dropLast(1)
+        val uri =
+            runCatching {
+                URI(out)
+            }.getOrNull() ?: return null
+
+        val scheme = uri.scheme?.trim().orEmpty()
+        if (scheme != "http" && scheme != "https") return null
+
+        var host = uri.host?.trim().orEmpty()
+        var port = uri.port
+
+        // 某些非标准输入（例如包含 userinfo）可能导致 host 为空；尝试从 authority 提取。
+        if (host.isBlank()) {
+            val authority = uri.rawAuthority?.trim().orEmpty()
+            if (authority.isBlank()) return null
+
+            val withoutUserInfo = authority.substringAfterLast('@').trim()
+            if (withoutUserInfo.isBlank()) return null
+
+            val hostPart = withoutUserInfo.substringBefore(':').trim()
+            if (hostPart.isBlank()) return null
+            host = hostPart
+
+            if (port == -1) {
+                val portPart = withoutUserInfo.substringAfter(':', missingDelimiterValue = "").trim()
+                if (portPart.isNotBlank()) {
+                    port = portPart.toIntOrNull() ?: return null
+                }
+            }
         }
-        return out
+
+        val hostForUrl =
+            if (host.contains(":") && !host.startsWith("[") && !host.endsWith("]")) {
+                "[$host]"
+            } else {
+                host
+            }
+
+        val portPart = if (port in 1..65535) ":$port" else ""
+        return "$scheme://$hostForUrl$portPart".trimEnd('/')
     }
 }

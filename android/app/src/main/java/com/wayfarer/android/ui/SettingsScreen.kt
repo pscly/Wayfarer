@@ -1,5 +1,7 @@
 package com.wayfarer.android.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.hardware.Sensor
@@ -40,12 +42,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.wayfarer.android.BuildConfig
 import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.api.ServerConfigStore
@@ -56,14 +61,19 @@ import com.wayfarer.android.dev.DeveloperModeGate
 import com.wayfarer.android.steps.StepDeltaCalculator
 import com.wayfarer.android.tracking.TrackPointRepository
 import com.wayfarer.android.sync.SyncStateStore
+import com.wayfarer.android.sync.WayfarerSyncScheduler
 import com.wayfarer.android.sync.WayfarerSyncManager
+import com.wayfarer.android.ui.auth.AuthGateStore
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onAuthStateChanged: () -> Unit,
+) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scrollState = rememberScrollState()
 
     val developerModeGate = remember { DeveloperModeGate() }
@@ -85,12 +95,14 @@ fun SettingsScreen() {
     var currentBaseUrl by remember { mutableStateOf(ServerConfigStore.readBaseUrl(context)) }
     var connectionTesting by remember { mutableStateOf(false) }
     var connectionOk by remember { mutableStateOf<Boolean?>(null) }
+    var serverUrlError by remember { mutableStateOf<String?>(null) }
+    var serverUrlInfo by remember { mutableStateOf<String?>(null) }
 
     // Auth state (stored in SharedPreferences).
     var authedUserId by remember { mutableStateOf(AuthStore.readUserId(context)) }
     var authedUsername by remember { mutableStateOf(AuthStore.readUsername(context)) }
     var authBusy by remember { mutableStateOf(false) }
-    var authError by remember { mutableStateOf<String?>(null) }
+    var authError by remember { mutableStateOf<UiError?>(null) }
 
     // Login form.
     var loginUsername by rememberSaveable { mutableStateOf("") }
@@ -149,6 +161,29 @@ fun SettingsScreen() {
             android.content.pm.PackageManager.PERMISSION_GRANTED
     val gpsEnabled = isGpsEnabled(context)
 
+    val serverUrlInvalidMsg = stringResource(com.wayfarer.android.R.string.settings_server_url_invalid)
+    val serverUrlAutoFixedMsg = stringResource(com.wayfarer.android.R.string.settings_server_url_auto_fixed)
+    val httpNotAllowedMsg = stringResource(com.wayfarer.android.R.string.auth_gate_http_not_allowed)
+
+    fun copyToClipboard(label: String, text: String) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+    }
+
+    // 当状态在后台变化时（例如自动同步更新、token 失效被清理），页面回到前台需要刷新显示。
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    reloadAuthState()
+                    reloadBaseUrlState()
+                    reloadSyncMeta()
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -198,10 +233,16 @@ fun SettingsScreen() {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (authError != null) {
                             Text(
-                                text = authError ?: "",
+                                text = authError?.message.orEmpty(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )
+                            val detail = authError?.detail
+                            if (!detail.isNullOrBlank()) {
+                                TextButton(onClick = { copyToClipboard("Wayfarer error", detail) }) {
+                                    Text(stringResource(com.wayfarer.android.R.string.auth_gate_copy_error))
+                                }
+                            }
                         }
 
                         OutlinedTextField(
@@ -249,11 +290,13 @@ fun SettingsScreen() {
                                     authBusy = false
                                     showRegisterDialog = false
                                     reloadAuthState()
+                                    WayfarerSyncScheduler.enqueueOneTimeSync(context)
                                     refreshStats()
+                                    onAuthStateChanged()
                                 },
                                 onError = { err ->
                                     authBusy = false
-                                    authError = err.message ?: err.toString()
+                                    authError = UiErrorFormatter.format(err)
                                 },
                             )
                         },
@@ -378,20 +421,61 @@ fun SettingsScreen() {
                     fontFamily = FontFamily.Monospace,
                 )
 
+                if (!BuildConfig.DEBUG && currentBaseUrl.startsWith("http://")) {
+                    Text(
+                        text = httpNotAllowedMsg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
                 OutlinedTextField(
                     value = serverUrlInput,
-                    onValueChange = { serverUrlInput = it },
+                    onValueChange = {
+                        serverUrlInput = it
+                        serverUrlError = null
+                        serverUrlInfo = null
+                    },
                     label = { Text(stringResource(com.wayfarer.android.R.string.settings_server_url_label)) },
                     placeholder = { Text(stringResource(com.wayfarer.android.R.string.settings_server_url_hint)) },
                     singleLine = true,
                     enabled = !authBusy && !syncBusy,
                 )
 
+                if (!serverUrlError.isNullOrBlank()) {
+                    Text(
+                        text = serverUrlError ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (!serverUrlInfo.isNullOrBlank()) {
+                    Text(
+                        text = serverUrlInfo ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 Row {
                     FilledTonalButton(
                         enabled = !authBusy && !syncBusy,
                         onClick = {
-                            ServerConfigStore.saveBaseUrl(context, serverUrlInput)
+                            val raw = serverUrlInput.trim()
+                            val normalized = ServerConfigStore.normalizeBaseUrlOrNull(raw)
+                            if (normalized == null) {
+                                serverUrlError = serverUrlInvalidMsg
+                                return@FilledTonalButton
+                            }
+                            if (!BuildConfig.DEBUG && normalized.startsWith("http://")) {
+                                serverUrlError = httpNotAllowedMsg
+                                return@FilledTonalButton
+                            }
+                            val hadPath = raw.substringAfter("://", raw).contains("/")
+                            serverUrlInfo = if (hadPath) serverUrlAutoFixedMsg else null
+                            serverUrlError = null
+
+                            serverUrlInput = normalized
+                            ServerConfigStore.saveBaseUrl(context, normalized)
                             reloadBaseUrlState()
                             connectionOk = null
                         },
@@ -405,6 +489,8 @@ fun SettingsScreen() {
                         enabled = !authBusy && !syncBusy,
                         onClick = {
                             serverUrlInput = ""
+                            serverUrlError = null
+                            serverUrlInfo = null
                             ServerConfigStore.saveBaseUrl(context, "")
                             reloadBaseUrlState()
                             connectionOk = null
@@ -471,10 +557,16 @@ fun SettingsScreen() {
 
                 if (authError != null) {
                     Text(
-                        text = authError ?: "",
+                        text = authError?.message.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
+                    val detail = authError?.detail
+                    if (!detail.isNullOrBlank()) {
+                        TextButton(onClick = { copyToClipboard("Wayfarer error", detail) }) {
+                            Text(stringResource(com.wayfarer.android.R.string.auth_gate_copy_error))
+                        }
+                    }
                 }
 
                 if (authedUserId != null && authedUsername != null) {
@@ -497,8 +589,12 @@ fun SettingsScreen() {
                         onClick = {
                             authError = null
                             syncManager.logout()
+                            AuthGateStore.reset(context)
+                            WayfarerSyncScheduler.cancelPeriodicSync(context)
                             reloadAuthState()
+                            reloadSyncMeta()
                             refreshStats()
+                            onAuthStateChanged()
                         },
                     ) {
                         Text(stringResource(com.wayfarer.android.R.string.settings_logout))
@@ -540,11 +636,13 @@ fun SettingsScreen() {
                                         authBusy = false
                                         loginPassword = ""
                                         reloadAuthState()
+                                        WayfarerSyncScheduler.enqueueOneTimeSync(context)
                                         refreshStats()
+                                        onAuthStateChanged()
                                     },
                                     onError = { err ->
                                         authBusy = false
-                                        authError = err.message ?: err.toString()
+                                        authError = UiErrorFormatter.format(err)
                                     },
                                 )
                             },
@@ -571,7 +669,6 @@ fun SettingsScreen() {
                             Text(stringResource(com.wayfarer.android.R.string.settings_register))
                         }
                     }
-                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -637,7 +734,7 @@ fun SettingsScreen() {
                                 },
                                 onError = { err ->
                                     syncBusy = false
-                                    syncMessage = err.message ?: err.toString()
+                                    syncMessage = UiErrorFormatter.format(err).message
                                 },
                             )
                         },
@@ -672,7 +769,7 @@ fun SettingsScreen() {
                                 },
                                 onError = { err ->
                                     syncBusy = false
-                                    syncMessage = err.message ?: err.toString()
+                                    syncMessage = UiErrorFormatter.format(err).message
                                 },
                             )
                         },
@@ -818,6 +915,8 @@ fun SettingsScreen() {
     androidx.compose.runtime.LaunchedEffect(Unit) {
         refreshStats()
     }
+}
+
 }
 
 private fun hasLocationPermission(context: Context): Boolean {

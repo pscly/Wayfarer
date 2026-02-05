@@ -71,9 +71,22 @@
     <string name="settings_server_url_current">当前：%1$s</string>
     <string name="settings_server_url_save">保存</string>
     <string name="settings_server_url_reset">恢复默认</string>
+    <string name="settings_server_url_invalid">服务器地址格式不正确，请只填写域名或 host:port（不要包含 /v1）。</string>
+    <string name="settings_server_url_auto_fixed">已自动修正：服务器地址不要包含路径（如 /v1）。</string>
     <string name="settings_test_connection">测试连接</string>
     <string name="settings_connection_ok">连接正常</string>
     <string name="settings_connection_failed">连接失败</string>
+
+    <!-- Auth gate -->
+    <string name="auth_gate_title">登录以启用同步</string>
+    <string name="auth_gate_subtitle">登录后可将本地轨迹同步到服务器；未登录也可离线记录。</string>
+    <string name="auth_gate_section_server">服务器</string>
+    <string name="auth_gate_section_account">账号</string>
+    <string name="auth_gate_section_offline">离线模式</string>
+    <string name="auth_gate_offline_hint">未登录仍可记录与查看本地数据，但无法同步到服务器。</string>
+    <string name="auth_gate_continue_offline">离线继续</string>
+    <string name="auth_gate_copy_error">复制错误详情</string>
+    <string name="auth_gate_http_not_allowed">当前构建不支持 HTTP，请改用 HTTPS 或安装 debug 包</string>
 
     <string name="settings_account_status">账号</string>
     <string name="settings_account_logged_in_as">已登录：%1$s</string>

@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 import com.wayfarer.android.sync.RejectedItem
@@ -63,6 +64,7 @@ class WayfarerApiClient(
         accessToken: String? = null,
         body: JSONObject? = null,
     ): JSONObject {
+        val requestTraceId = UUID.randomUUID().toString()
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val rb = when {
             body != null -> body.toString().toRequestBody(mediaType)
@@ -76,6 +78,7 @@ class WayfarerApiClient(
             builder.header("Authorization", "Bearer $accessToken")
         }
         builder.header("Accept", "application/json")
+        builder.header("X-Trace-Id", requestTraceId)
 
         when (method) {
             "GET" -> builder.get()
@@ -90,7 +93,20 @@ class WayfarerApiClient(
         http.newCall(req).execute().use { res ->
             val bodyText = res.body?.string()
             if (!res.isSuccessful) {
-                throw ApiException(res.code, bodyText, "HTTP ${res.code} for $path")
+                val env = ApiErrorParser.parse(bodyText)
+                val traceId = env?.traceId?.trim().takeIf { !it.isNullOrBlank() }
+                    ?: res.header("X-Trace-Id")?.trim().takeIf { !it.isNullOrBlank() }
+                    ?: requestTraceId
+                throw ApiException(
+                    statusCode = res.code,
+                    responseBody = bodyText,
+                    message = "HTTP ${res.code} for $path",
+                    requestPath = path,
+                    apiCode = env?.code,
+                    apiMessage = env?.message,
+                    traceId = traceId,
+                    serverBaseUrl = baseUrl(),
+                )
             }
             val text = bodyText?.trim().orEmpty()
             if (text.isBlank()) return JSONObject()

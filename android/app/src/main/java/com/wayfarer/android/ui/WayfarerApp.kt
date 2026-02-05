@@ -1,5 +1,6 @@
 package com.wayfarer.android.ui
 
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.LocationOn
@@ -14,13 +15,24 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.padding
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.wayfarer.android.api.AuthStore
+import com.wayfarer.android.sync.WayfarerSyncScheduler
+import com.wayfarer.android.ui.auth.AuthGateScreen
+import com.wayfarer.android.ui.auth.AuthGateStore
 
 private enum class AppTab {
     RECORDS,
@@ -32,6 +44,68 @@ private enum class AppTab {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WayfarerApp() {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    data class AuthSnapshot(
+        val userId: String?,
+        val refreshToken: String?,
+    ) {
+        val isLoggedIn: Boolean
+            get() = !userId.isNullOrBlank() && !refreshToken.isNullOrBlank()
+    }
+
+    fun readAuthSnapshot(): AuthSnapshot {
+        return AuthSnapshot(
+            userId = AuthStore.readUserId(context),
+            refreshToken = AuthStore.readRefreshToken(context),
+        )
+    }
+
+    var authSnapshot by remember { mutableStateOf(readAuthSnapshot()) }
+    var gateDismissed by remember { mutableStateOf(AuthGateStore.isDismissed(context)) }
+
+    fun refreshAuthState() {
+        authSnapshot = readAuthSnapshot()
+        gateDismissed = AuthGateStore.isDismissed(context)
+    }
+
+    // 当 Auth 变化发生在后台（例如 Worker 刷新失败清理 token）时，App 回到前台需要刷新状态。
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    refreshAuthState()
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(authSnapshot.isLoggedIn) {
+        if (authSnapshot.isLoggedIn) {
+            WayfarerSyncScheduler.ensurePeriodicSyncScheduled(context)
+        } else {
+            WayfarerSyncScheduler.cancelPeriodicSync(context)
+        }
+    }
+
+    if (!authSnapshot.isLoggedIn && !gateDismissed) {
+        AuthGateScreen(
+            onLoginSuccess = { refreshAuthState() },
+            onContinueOffline = { refreshAuthState() },
+        )
+        return
+    }
+
+    WayfarerAppShell(onAuthStateChanged = { refreshAuthState() })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WayfarerAppShell(
+    onAuthStateChanged: () -> Unit,
+) {
     var tab by rememberSaveable { androidx.compose.runtime.mutableStateOf(AppTab.RECORDS) }
 
     val title = stringResource(
@@ -107,7 +181,7 @@ fun WayfarerApp() {
             AppTab.SETTINGS -> androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier.padding(paddingValues),
             ) {
-                SettingsScreen()
+                SettingsScreen(onAuthStateChanged = onAuthStateChanged)
             }
         }
     }
