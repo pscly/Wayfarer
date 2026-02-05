@@ -17,3 +17,7 @@
   - 格式遵循 **Conventional Commits** (例如: `feat: add user login`, `fix: database connection`).
   - **变更日志**: 如果是 Minor 版本变动，请附带一段详细的 Changelog。
 
+## 注意
+
+开发完毕后尝试使用 adb 推送到 192.168.12.101:5555 上安装 
+
