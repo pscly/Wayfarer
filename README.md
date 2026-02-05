@@ -578,6 +578,21 @@ deploy 需要的 Secrets（名称以 workflow 为准）：
   - 如果误填 `10.*` / `172.16-31.*` / `192.168.*` / `127.*` 等内网/回环地址，workflow 会直接报错并中止 deploy（防止白跑 CI）。
 - `KNOWN_HOSTS`：pinned known_hosts（推荐固定，保持 `StrictHostKeyChecking=yes`；更换 `HOST` 后记得同步更新）
 
+### 常见报错与排障（deploy）
+
+- 日志里出现 `/home/runner/...`：这是 GitHub-hosted runner 的工作目录，属于正常现象（workflow 就是在 runner 上执行 `ssh`）。
+- `Pinned known_hosts missing entry ...`：
+  - 含义：pinned `known_hosts` 里缺少当前 `HOST/PORT` 的条目（StrictHostKeyChecking 下会直接拒绝）。
+  - 处理：更新 `secrets.KNOWN_HOSTS` 或提交 `.github/known_hosts`，确保包含 `HOST` 或 `[HOST]:PORT` 对应的 host key。
+- `Permission denied (publickey,password)`（最常见）：
+  - 含义：服务器**没有接受** workflow 使用的 SSH 私钥（公钥未在 `authorized_keys`、用户不对、或 sshd/防火墙策略限制）。
+  - 建议按以下顺序排查：
+    1) 在 Actions 日志中找到 `Deploy SSH key fingerprint` / `offered_public_key_fingerprint`。
+    2) 在服务器上运行 `ssh-keygen -lf ~/.ssh/authorized_keys`，确认该 fingerprint 存在于目标用户的 `authorized_keys`。
+    3) 检查权限：`chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys`（权限过宽会导致 sshd 忽略该文件）。
+    4) 查看服务器日志定位根因：`journalctl -u ssh -S "30 min ago" | tail -n 200`（重点看是否连到了别的机器/端口转发错误、是否被 fail2ban/Match Address 限制等）。
+- 不想把 SSH 暴露到公网：推荐改用 **self-hosted runner**（部署机/内网机器跑 runner），deploy job 直接本机执行 `docker compose up -d --build`，不再需要从外网 SSH 进入内网。
+
 说明：CI/CD 属于“可选能力”，不影响本地开发。
 
 ---
