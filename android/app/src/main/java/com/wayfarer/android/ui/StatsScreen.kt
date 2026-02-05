@@ -132,6 +132,7 @@ fun StatsScreen() {
     val totalDistance = stats.sumOf { it.distanceM }
     val totalSteps = stats.sumOf { it.steps }
     val activeDays = stats.count { it.pointCount > 0 }
+    val statsDesc = remember(stats) { stats.sortedByDescending { it.day } }
 
     val selected = selectedDayIso
     if (selected != null) {
@@ -365,7 +366,7 @@ fun StatsScreen() {
         }
 
         items(
-            items = stats,
+            items = statsDesc,
             key = { it.day.toString() },
         ) { d ->
             DayStatCard(

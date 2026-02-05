@@ -151,10 +151,13 @@ test("stats page -> daily list -> click day -> hourly + marks", async ({ page })
   await page.goto("/stats");
   await expect(page.getByTestId("stats-daily")).toBeVisible();
 
+  const dayButtons = page.locator('[data-testid="stats-daily"] button');
+  await expect(dayButtons.first()).toHaveAttribute("data-testid", "stats-day-2026-01-31");
+  await expect(dayButtons.nth(1)).toHaveAttribute("data-testid", "stats-day-2026-01-30");
+
   await page.getByTestId("stats-day-2026-01-30").click();
   await expect(page.getByTestId("stats-hourly")).toBeVisible();
   await expect(page.getByTestId("stats-marks")).toBeVisible();
 
   await expect(page.getByText("出门买东西")).toBeVisible();
 });
-

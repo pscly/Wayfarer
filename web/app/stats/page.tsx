@@ -128,6 +128,10 @@ export default function StatsPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const totalSteps = useMemo(() => sumSteps(daily), [daily]);
+  const dailyDesc = useMemo(
+    () => [...daily].sort((a, b) => b.day.localeCompare(a.day)),
+    [daily],
+  );
 
   const ensureToken = useCallback(async (): Promise<string | null> => {
     if (isHydrating) return null;
@@ -312,7 +316,7 @@ export default function StatsPage() {
           </div>
 
           <div data-testid="stats-daily" className="grid gap-2">
-            {daily.map((it) => {
+            {dailyDesc.map((it) => {
               const isSelected = selectedDay === it.day;
               return (
                 <button
