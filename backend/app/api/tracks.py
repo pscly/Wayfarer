@@ -83,6 +83,8 @@ class TrackQueryItem(BaseModel):
 
     gcj02_latitude: float | None = None
     gcj02_longitude: float | None = None
+    step_count: int | None = None
+    step_delta: int | None = None
 
 
 class TrackQueryResponse(BaseModel):
@@ -359,6 +361,8 @@ async def query_tracks(
             gcj02_longitude=(
                 float(p.gcj02_longitude) if p.gcj02_longitude is not None else None
             ),
+            step_count=(int(p.step_count) if p.step_count is not None else None),
+            step_delta=(int(p.step_delta) if p.step_delta is not None else None),
         )
         for p in rows
     ]

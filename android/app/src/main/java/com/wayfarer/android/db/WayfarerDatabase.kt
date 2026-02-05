@@ -6,10 +6,12 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         TrackPointEntity::class,
+        LifeEventEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class WayfarerDatabase : RoomDatabase() {
     abstract fun trackPointDao(): TrackPointDao
+    abstract fun lifeEventDao(): LifeEventDao
 }

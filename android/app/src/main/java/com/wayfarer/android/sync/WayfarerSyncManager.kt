@@ -6,6 +6,7 @@ import android.os.Looper
 import com.wayfarer.android.api.ApiException
 import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.api.WayfarerApiClient
+import com.wayfarer.android.db.LifeEventEntity
 import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.db.WayfarerDatabaseProvider
 import com.wayfarer.android.tracking.GeomHash
@@ -21,6 +22,7 @@ class WayfarerSyncManager(
 ) {
     private val appContext = context.applicationContext
     private val dao = WayfarerDatabaseProvider.get(appContext).trackPointDao()
+    private val lifeEventDao = WayfarerDatabaseProvider.get(appContext).lifeEventDao()
     private val api = WayfarerApiClient(appContext)
 
     private val ioExecutor: Executor = Executors.newSingleThreadExecutor()
@@ -36,11 +38,28 @@ class WayfarerSyncManager(
         val accepted: Int,
         val rejected: Int,
         val locallyRejected: Int,
+        val lifeEventsAttempted: Int = 0,
+        val lifeEventsAccepted: Int = 0,
+        val lifeEventsFailed: Int = 0,
     )
 
     data class PullResult(
         val fetched: Int,
         val inserted: Int,
+    )
+
+    private data class TrackPointsUploadCounts(
+        val attempted: Int,
+        val sent: Int,
+        val accepted: Int,
+        val rejected: Int,
+        val locallyRejected: Int,
+    )
+
+    private data class LifeEventsUploadCounts(
+        val attempted: Int,
+        val accepted: Int,
+        val failed: Int,
     )
 
     fun logout() {
@@ -80,6 +99,9 @@ class WayfarerSyncManager(
 
                 // Bind offline points to the authenticated user for subsequent sync.
                 runCatching { dao.reassignUser(oldUserId = USER_ID_LOCAL, newUserId = me.userId) }
+                runCatching {
+                    lifeEventDao.reassignUser(oldUserId = USER_ID_LOCAL, newUserId = me.userId)
+                }
 
                 LoginResult(userInfo = me)
             }
@@ -108,6 +130,9 @@ class WayfarerSyncManager(
                 val me = api.me(accessToken = token.accessToken)
                 AuthStore.writeUserInfo(appContext, userId = me.userId, username = me.username)
                 runCatching { dao.reassignUser(oldUserId = USER_ID_LOCAL, newUserId = me.userId) }
+                runCatching {
+                    lifeEventDao.reassignUser(oldUserId = USER_ID_LOCAL, newUserId = me.userId)
+                }
 
                 LoginResult(userInfo = me)
             }
@@ -208,9 +233,30 @@ class WayfarerSyncManager(
 
         val now = Instant.now().toString()
 
+        val tracks = uploadPendingTrackPoints(userId = userId, now = now, maxItems = maxItems)
+        val lifeEvents = uploadPendingLifeEvents(userId = userId, now = now, maxItems = 50)
+        SyncStateStore.markUploadOk(appContext)
+
+        return UploadResult(
+            attempted = tracks.attempted,
+            sent = tracks.sent,
+            accepted = tracks.accepted,
+            rejected = tracks.rejected,
+            locallyRejected = tracks.locallyRejected,
+            lifeEventsAttempted = lifeEvents.attempted,
+            lifeEventsAccepted = lifeEvents.accepted,
+            lifeEventsFailed = lifeEvents.failed,
+        )
+    }
+
+    private fun uploadPendingTrackPoints(
+        userId: String,
+        now: String,
+        maxItems: Int,
+    ): TrackPointsUploadCounts {
         val pending = dao.listPendingSync(userId = userId, limit = maxItems)
         if (pending.isEmpty()) {
-            return UploadResult(
+            return TrackPointsUploadCounts(
                 attempted = 0,
                 sent = 0,
                 accepted = 0,
@@ -242,7 +288,7 @@ class WayfarerSyncManager(
         }
 
         if (valid.isEmpty()) {
-            return UploadResult(
+            return TrackPointsUploadCounts(
                 attempted = pending.size,
                 sent = 0,
                 accepted = 0,
@@ -276,6 +322,8 @@ class WayfarerSyncManager(
             if (p.longitudeGcj02 != null) obj.put("gcj02_longitude", p.longitudeGcj02)
             if (p.altitudeM != null) obj.put("altitude", p.altitudeM)
             if (p.speedMps != null) obj.put("speed", p.speedMps)
+            if (p.stepCount != null) obj.put("step_count", p.stepCount)
+            if (p.stepDelta != null) obj.put("step_delta", p.stepDelta)
 
             itemsJson.put(obj)
         }
@@ -333,9 +381,7 @@ class WayfarerSyncManager(
                 )
             }
 
-            SyncStateStore.markUploadOk(appContext)
-
-            return UploadResult(
+            return TrackPointsUploadCounts(
                 attempted = pending.size,
                 sent = valid.size,
                 accepted = acceptedIds.size,
@@ -353,6 +399,95 @@ class WayfarerSyncManager(
                     error = "SYNC_UPLOAD_FAILED: ${msg.take(200)}",
                     updatedAtUtc = now,
                 )
+            }
+            SyncStateStore.markError(appContext, msg)
+            throw e
+        }
+    }
+
+    private fun uploadPendingLifeEvents(
+        userId: String,
+        now: String,
+        maxItems: Int,
+    ): LifeEventsUploadCounts {
+        val pending = lifeEventDao.listPendingSync(userId = userId, limit = maxItems)
+        if (pending.isEmpty()) {
+            return LifeEventsUploadCounts(attempted = 0, accepted = 0, failed = 0)
+        }
+
+        val sendingIds = pending.map { it.eventId }.distinct().filter { it.isNotBlank() }
+        if (sendingIds.isNotEmpty()) {
+            lifeEventDao.markSyncStatusByEventIds(
+                userId = userId,
+                eventIds = sendingIds,
+                status = LifeEventEntity.SyncStatus.UPLOADING,
+                error = null,
+                syncedAtUtc = null,
+                updatedAtUtc = now,
+            )
+        }
+
+        var accepted = 0
+        try {
+            for (e in pending) {
+                val endAt = e.endAtUtc ?: continue
+
+                val payload = JSONObject()
+                    .put("id", e.eventId)
+                    .put("event_type", e.eventType)
+                    .put("start_at", e.startAtUtc)
+                    .put("end_at", endAt)
+                    .put("location_name", e.label)
+
+                if (e.note != null) payload.put("manual_note", e.note)
+                else payload.put("manual_note", JSONObject.NULL)
+
+                if (e.latitudeWgs84 != null) payload.put("latitude", e.latitudeWgs84)
+                if (e.longitudeWgs84 != null) payload.put("longitude", e.longitudeWgs84)
+                if (e.latitudeGcj02 != null) payload.put("gcj02_latitude", e.latitudeGcj02)
+                if (e.longitudeGcj02 != null) payload.put("gcj02_longitude", e.longitudeGcj02)
+
+                val rawPayload = e.payloadJson?.trim().orEmpty()
+                if (rawPayload.isNotBlank()) {
+                    val jsonObj = runCatching { JSONObject(rawPayload) }.getOrNull()
+                    if (jsonObj != null) payload.put("payload_json", jsonObj)
+                    else payload.put("payload_json", JSONObject().put("raw", rawPayload))
+                }
+
+                authenticated { token ->
+                    api.lifeEventCreate(accessToken = token, payload = payload)
+                }
+                accepted += 1
+                if (e.eventId.isNotBlank()) {
+                    lifeEventDao.markSyncStatusByEventIds(
+                        userId = userId,
+                        eventIds = listOf(e.eventId),
+                        status = LifeEventEntity.SyncStatus.ACKED,
+                        error = null,
+                        syncedAtUtc = now,
+                        updatedAtUtc = now,
+                    )
+                }
+            }
+
+            val failed = (pending.size - accepted).coerceAtLeast(0)
+            return LifeEventsUploadCounts(
+                attempted = pending.size,
+                accepted = accepted,
+                failed = failed,
+            )
+        } catch (e: Throwable) {
+            val msg = e.message ?: e.toString()
+            runCatching {
+                if (sendingIds.isNotEmpty()) {
+                    lifeEventDao.markSyncStatusByEventIdsIfUploading(
+                        userId = userId,
+                        eventIds = sendingIds,
+                        status = LifeEventEntity.SyncStatus.QUEUED,
+                        error = "SYNC_UPLOAD_FAILED: ${msg.take(200)}",
+                        updatedAtUtc = now,
+                    )
+                }
             }
             SyncStateStore.markError(appContext, msg)
             throw e
@@ -403,6 +538,8 @@ class WayfarerSyncManager(
                     altitudeM = null,
                     speedMps = null,
                     bearingDeg = null,
+                    stepCount = it.stepCount,
+                    stepDelta = it.stepDelta,
                     geomHash = GeomHash.sha256LatLonWgs84(it.latitude, it.longitude),
                     weatherSnapshotJson = null,
                     serverTrackPointId = null,

@@ -54,6 +54,8 @@ def _upload_two_points(client: TestClient, *, access_token: str) -> tuple[str, s
                 "latitude": 31.2304,
                 "longitude": 121.4737,
                 "accuracy": 8.0,
+                "step_count": 100,
+                "step_delta": 10,
             },
             {
                 "client_point_id": p2,
@@ -61,6 +63,8 @@ def _upload_two_points(client: TestClient, *, access_token: str) -> tuple[str, s
                 "latitude": 31.2305,
                 "longitude": 121.4738,
                 "accuracy": 9.0,
+                "step_count": 110,
+                "step_delta": 10,
             },
         ]
     }
@@ -120,6 +124,11 @@ def test_tracks_query_happy_path_orders_and_z_format(client: TestClient) -> None
     assert items[0]["recorded_at"].endswith("Z")
     assert items[1]["recorded_at"].endswith("Z")
 
+    assert items[0]["step_count"] == 100
+    assert items[0]["step_delta"] == 10
+    assert items[1]["step_count"] == 110
+    assert items[1]["step_delta"] == 10
+
 
 def test_tracks_query_pagination_limit_offset(client: TestClient) -> None:
     email = f"u-{uuid.uuid4().hex}@test.com"
@@ -138,6 +147,8 @@ def test_tracks_query_pagination_limit_offset(client: TestClient) -> None:
     assert len(items) == 1
     assert items[0]["client_point_id"] == p2
     assert items[0]["recorded_at"].endswith("Z")
+    assert items[0]["step_count"] == 110
+    assert items[0]["step_delta"] == 10
 
 
 def test_tracks_query_invalid_range_returns_400(client: TestClient) -> None:
@@ -175,3 +186,5 @@ def test_tracks_query_filters_active_delete_range_edit(client: TestClient) -> No
     items = r.json()["items"]
     assert [it["client_point_id"] for it in items] == [p2]
     assert items[0]["recorded_at"].endswith("Z")
+    assert items[0]["step_count"] == 110
+    assert items[0]["step_delta"] == 10

@@ -47,6 +47,8 @@ class WayfarerApiClient(
         val accuracy: Double?,
         val gcj02Latitude: Double?,
         val gcj02Longitude: Double?,
+        val stepCount: Long?,
+        val stepDelta: Long?,
         val isDirty: Boolean,
     )
 
@@ -234,11 +236,17 @@ class WayfarerApiClient(
                     accuracy = if (!it.has("accuracy") || it.isNull("accuracy")) null else it.getDouble("accuracy"),
                     gcj02Latitude = if (!it.has("gcj02_latitude") || it.isNull("gcj02_latitude")) null else it.getDouble("gcj02_latitude"),
                     gcj02Longitude = if (!it.has("gcj02_longitude") || it.isNull("gcj02_longitude")) null else it.getDouble("gcj02_longitude"),
+                    stepCount = if (!it.has("step_count") || it.isNull("step_count")) null else it.getLong("step_count"),
+                    stepDelta = if (!it.has("step_delta") || it.isNull("step_delta")) null else it.getLong("step_delta"),
                     isDirty = it.optBoolean("is_dirty", false),
                 ),
             )
         }
         return out
+    }
+
+    fun lifeEventCreate(accessToken: String, payload: JSONObject): JSONObject {
+        return requestJson("POST", "/v1/life-events", accessToken = accessToken, body = payload)
     }
 
     private fun encode(s: String): String {

@@ -57,6 +57,12 @@ data class TrackPointEntity(
     @ColumnInfo(name = "bearing")
     val bearingDeg: Double? = null,
 
+    // Steps (best-effort): cumulative + delta since previous sample.
+    @ColumnInfo(name = "step_count")
+    val stepCount: Long? = null,
+    @ColumnInfo(name = "step_delta")
+    val stepDelta: Long? = null,
+
     // Weak dedupe helper
     @ColumnInfo(name = "geom_hash")
     val geomHash: String,

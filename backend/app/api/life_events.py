@@ -59,6 +59,8 @@ class LifeEventListResponse(BaseModel):
 
 
 class LifeEventCreateRequest(BaseModel):
+    # Optional client-provided UUID for idempotency.
+    id: uuid.UUID | None = None
     event_type: str
     start_at: dt.datetime
     end_at: dt.datetime
@@ -174,27 +176,67 @@ async def create_life_event(
         )
 
     now = utcnow()
-    e = LifeEvent(
-        user_id=user.id,
-        event_type=str(payload.event_type),
-        start_at=start_utc,
-        end_at=end_utc,
-        location_name=payload.location_name,
-        manual_note=payload.manual_note,
-        latitude=payload.latitude,
-        longitude=payload.longitude,
-        gcj02_latitude=payload.gcj02_latitude,
-        gcj02_longitude=payload.gcj02_longitude,
-        coord_source=payload.coord_source,
-        coord_transform_status=payload.coord_transform_status,
-        payload_json=payload.payload_json,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(e)
-    await db.commit()
-    await db.refresh(e)
-    return _to_item(e)
+    resolved_id = payload.id or uuid.uuid4()
+
+    row = {
+        "id": resolved_id,
+        "user_id": user.id,
+        "event_type": str(payload.event_type),
+        "start_at": start_utc,
+        "end_at": end_utc,
+        "location_name": payload.location_name,
+        "manual_note": payload.manual_note,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "gcj02_latitude": payload.gcj02_latitude,
+        "gcj02_longitude": payload.gcj02_longitude,
+        "coord_source": payload.coord_source,
+        "coord_transform_status": payload.coord_transform_status,
+        "payload_json": payload.payload_json,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    bind = db.bind or db.get_bind()
+    dialect = str(getattr(getattr(bind, "dialect", None), "name", "") or "")
+    if dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as _insert
+
+        stmt = _insert(LifeEvent.__table__).values([row]).prefix_with("OR IGNORE")
+        await db.execute(stmt)
+        await db.commit()
+    elif dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as _insert
+
+        stmt = (
+            _insert(LifeEvent.__table__)
+            .values([row])
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+        await db.execute(stmt)
+        await db.commit()
+    else:
+        # Fallback: ORM insert (may raise if id exists).
+        e = LifeEvent(**row)
+        db.add(e)
+        await db.commit()
+
+    existing = (
+        await db.execute(sa.select(LifeEvent).where(LifeEvent.id == resolved_id))
+    ).scalar_one_or_none()
+    if existing is None:
+        raise APIError(
+            code="LIFE_EVENT_CREATE_FAILED",
+            message="LifeEvent insert failed",
+            status_code=500,
+        )
+    if existing.user_id != user.id:
+        raise APIError(
+            code="LIFE_EVENT_ID_CONFLICT",
+            message="LifeEvent id already exists",
+            status_code=409,
+        )
+    return _to_item(existing)
 
 
 @router.put("/{id}", response_model=LifeEventItem)

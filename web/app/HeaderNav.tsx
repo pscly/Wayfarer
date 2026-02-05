@@ -21,6 +21,12 @@ export function HeaderNav() {
       >
         轨迹
       </Link>
+      <Link
+        href="/stats"
+        className="rounded-full px-3 py-1.5 text-foreground/80 hover:bg-panel hover:text-foreground"
+      >
+        统计
+      </Link>
       {me?.is_admin ? (
         <Link
           href="/admin/users"

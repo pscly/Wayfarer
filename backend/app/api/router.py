@@ -8,6 +8,7 @@ from app.api.health import router as health_router
 from app.api.users import router as users_router
 from app.api.tracks import router as tracks_router
 from app.api.life_events import router as life_events_router
+from app.api.stats_steps import router as stats_steps_router
 from app.api.admin import router as admin_router
 
 
@@ -18,4 +19,5 @@ api_router.include_router(users_router)
 api_router.include_router(admin_router)
 api_router.include_router(tracks_router)
 api_router.include_router(life_events_router)
+api_router.include_router(stats_steps_router)
 api_router.include_router(export_router)

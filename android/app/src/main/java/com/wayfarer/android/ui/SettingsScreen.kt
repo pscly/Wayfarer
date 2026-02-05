@@ -642,7 +642,7 @@ fun SettingsScreen(
                                     reloadSyncMeta()
                                     refreshStats()
                                     syncMessage =
-                                        "上传：sent=${it.sent}, ok=${it.accepted}, rejected=${it.rejected}, local_skip=${it.locallyRejected}"
+                                        "上传：sent=${it.sent}, ok=${it.accepted}, rejected=${it.rejected}, local_skip=${it.locallyRejected}；标记：ok=${it.lifeEventsAccepted}, fail=${it.lifeEventsFailed}"
                                 },
                                 onError = { err ->
                                     syncBusy = false

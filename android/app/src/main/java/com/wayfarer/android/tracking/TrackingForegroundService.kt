@@ -7,6 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.pm.PackageManager
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -17,6 +21,7 @@ import com.wayfarer.android.R
 import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.amap.AmapApiKey
 import com.wayfarer.android.db.TrackPointEntity
+import com.wayfarer.android.steps.StepDeltaCalculator
 import com.wayfarer.android.tracking.fsm.SmartSamplingFsm
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityRecognitionResult
@@ -48,6 +53,12 @@ class TrackingForegroundService : Service(), LocationListener {
     private lateinit var repository: TrackPointRepository
     private val fsm: SmartSamplingFsm = SmartSamplingFsm()
 
+    private var sensorManager: SensorManager? = null
+    private var stepSensor: Sensor? = null
+    private var stepSensorListener: SensorEventListener? = null
+    private var latestStepCounterValue: Float? = null
+    private val stepDeltaCalculator: StepDeltaCalculator = StepDeltaCalculator()
+
     private var amapKeyPresent: Boolean = false
 
     private var isCapturing: Boolean = false
@@ -64,6 +75,8 @@ class TrackingForegroundService : Service(), LocationListener {
         super.onCreate()
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         repository = TrackPointRepository(this)
+        sensorManager = getSystemService(SENSOR_SERVICE) as? SensorManager
+        stepSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
 
         // GCJ-02 conversion is best-effort and should be bypassed in CI when key is missing.
         amapKeyPresent = runCatching {
@@ -87,18 +100,23 @@ class TrackingForegroundService : Service(), LocationListener {
 
     override fun onDestroy() {
         stopActivityUpdates()
+        stopStepCounter()
         stopLocationUpdates()
         TrackingStatusStore.markStopped(this)
         super.onDestroy()
     }
 
     private fun startTracking() {
+        if (isCapturing) return
         isCapturing = true
         TrackingStatusStore.markStarted(this)
         startForeground(NOTIFICATION_ID, buildNotification())
 
         // Best-effort: use Activity Recognition if runtime permission is present.
         startActivityUpdatesIfPermitted()
+
+        // Best-effort: use Step Counter if runtime permission is present.
+        startStepCounterIfPermitted()
 
         // Best-effort: request location updates only when runtime permissions are present.
         requestLocationUpdatesIfPermitted(
@@ -108,9 +126,11 @@ class TrackingForegroundService : Service(), LocationListener {
     }
 
     private fun stopTracking() {
+        if (!isCapturing) return
         isCapturing = false
         TrackingStatusStore.markStopped(this)
         stopActivityUpdates()
+        stopStepCounter()
         stopLocationUpdates()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -154,6 +174,51 @@ class TrackingForegroundService : Service(), LocationListener {
         activityUpdatesPendingIntent = null
         activityPermissionGranted = false
         latestActivity = null
+    }
+
+    private fun startStepCounterIfPermitted() {
+        if (!hasActivityRecognitionPermission()) {
+            latestStepCounterValue = null
+            return
+        }
+
+        val sm = sensorManager ?: return
+        val sensor = stepSensor ?: return
+        if (stepSensorListener != null) return
+
+        stepDeltaCalculator.reset()
+        latestStepCounterValue = null
+
+        val listener =
+            object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent?) {
+                    if (!isCapturing) return
+                    val value = event?.values?.firstOrNull() ?: return
+                    latestStepCounterValue = value
+                }
+
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                    // no-op
+                }
+            }
+
+        stepSensorListener = listener
+        runCatching {
+            sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        }.onFailure {
+            // Missing sensor / runtime errors should not crash tracking.
+            stepSensorListener = null
+            latestStepCounterValue = null
+        }
+    }
+
+    private fun stopStepCounter() {
+        val sm = sensorManager ?: return
+        val listener = stepSensorListener ?: return
+        runCatching { sm.unregisterListener(listener) }
+        stepSensorListener = null
+        latestStepCounterValue = null
+        stepDeltaCalculator.reset()
     }
 
     private fun buildActivityUpdatePendingIntent(): PendingIntent {
@@ -297,6 +362,8 @@ class TrackingForegroundService : Service(), LocationListener {
 
         val userId = AuthStore.readUserId(this) ?: USER_ID_LOCAL
 
+        val steps = latestStepCounterValue?.let { stepDeltaCalculator.onSample(it) }
+
         val gcj02 = CoordTransform.wgs84ToGcj02BestEffort(
             context = this,
             latitudeWgs84 = lat,
@@ -318,6 +385,8 @@ class TrackingForegroundService : Service(), LocationListener {
             altitudeM = if (location.hasAltitude()) location.altitude else null,
             speedMps = if (location.hasSpeed()) location.speed.toDouble() else null,
             bearingDeg = if (location.hasBearing()) location.bearing.toDouble() else null,
+            stepCount = steps?.stepCount,
+            stepDelta = steps?.stepDelta,
             geomHash = GeomHash.sha256LatLonWgs84(lat, lon),
             createdAtUtc = recordedAt,
             updatedAtUtc = recordedAt,
