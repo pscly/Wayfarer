@@ -45,12 +45,38 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
-function isoUtcDayStart(dayIso: string): string {
-  return `${dayIso}T00:00:00Z`;
+function getLocalTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
-function isoUtcDayEnd(dayIso: string): string {
-  return `${dayIso}T23:59:59Z`;
+function parseDayIso(dayIso: string): { year: number; month: number; day: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayIso);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
+function isoLocalDayStartUtc(dayIso: string): string {
+  const parsed = parseDayIso(dayIso);
+  if (!parsed) return `${dayIso}T00:00:00Z`;
+  const d = new Date(parsed.year, parsed.month - 1, parsed.day, 0, 0, 0, 0);
+  return d.toISOString();
+}
+
+function isoLocalDayEndUtc(dayIso: string): string {
+  const parsed = parseDayIso(dayIso);
+  if (!parsed) return `${dayIso}T23:59:59Z`;
+  const d = new Date(parsed.year, parsed.month - 1, parsed.day, 23, 59, 59, 999);
+  return d.toISOString();
 }
 
 function clampNonNegative(n: number): number {
@@ -58,25 +84,42 @@ function clampNonNegative(n: number): number {
   return n < 0 ? 0 : n;
 }
 
-function formatHourLabel(hourStartIso: string): string {
+function formatHourLabel(hourStartIso: string, timeZone: string): string {
   const d = new Date(hourStartIso);
   if (Number.isNaN(d.getTime())) return hourStartIso;
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  return `${hh}:00`;
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+}
+
+function formatLocalDateTime(iso: string, timeZone: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone,
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
 }
 
 function sumSteps(items: Array<{ steps: number }>): number {
   return items.reduce((acc, it) => acc + clampNonNegative(it.steps), 0);
 }
 
-function computeUtcWindowStartIso(windowDays: number): string {
+function computeLocalWindowStartIso(windowDays: number): string {
   const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  start.setUTCDate(start.getUTCDate() - Math.max(0, windowDays - 1));
-  return start.toISOString();
+  const startLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  startLocal.setDate(startLocal.getDate() - Math.max(0, windowDays - 1));
+  return startLocal.toISOString();
 }
 
-function HourlyBars({ items }: { items: StepsHourlyItem[] }) {
+function HourlyBars({ items, timeZone }: { items: StepsHourlyItem[]; timeZone: string }) {
   const max = Math.max(1, ...items.map((it) => clampNonNegative(it.steps)));
 
   return (
@@ -90,7 +133,9 @@ function HourlyBars({ items }: { items: StepsHourlyItem[] }) {
               key={it.hour_start}
               className="grid grid-cols-[5rem,1fr,4rem] items-center gap-3"
             >
-              <div className="text-xs text-foreground/70">{formatHourLabel(it.hour_start)}</div>
+              <div className="text-xs text-foreground/70">
+                {formatHourLabel(it.hour_start, timeZone)}
+              </div>
               <div className="h-2 overflow-hidden rounded-full border border-border bg-black/20">
                 <div
                   className="h-full rounded-full bg-emerald-400/80"
@@ -104,7 +149,7 @@ function HourlyBars({ items }: { items: StepsHourlyItem[] }) {
       </div>
 
       <div className="text-xs text-foreground/60">
-        说明：小时桶按 UTC 展示（后续可加时区偏移）。
+        说明：按本地时区展示（{timeZone}）。
       </div>
     </div>
   );
@@ -113,6 +158,7 @@ function HourlyBars({ items }: { items: StepsHourlyItem[] }) {
 export default function StatsPage() {
   const router = useRouter();
   const { accessToken, isHydrating, refresh, setAccessToken } = useAuth();
+  const timeZone = useMemo(() => getLocalTimeZone(), []);
 
   const [windowDays, setWindowDays] = useState(7);
   const [reloadToken, setReloadToken] = useState(0);
@@ -156,10 +202,10 @@ export default function StatsPage() {
         const token = await ensureToken();
         if (!token || cancelled) return;
 
-        const startIso = computeUtcWindowStartIso(windowDays);
+        const startIso = computeLocalWindowStartIso(windowDays);
         const endIso = isoNow();
 
-        const params = new URLSearchParams({ start: startIso, end: endIso });
+        const params = new URLSearchParams({ start: startIso, end: endIso, tz: timeZone });
         const data = await apiFetch<StepsDailyResponse>(
           `/v1/stats/steps/daily?${params.toString()}`,
           { method: "GET" },
@@ -187,7 +233,7 @@ export default function StatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [ensureToken, isHydrating, refresh, router, setAccessToken, windowDays, reloadToken]);
+  }, [ensureToken, isHydrating, refresh, router, setAccessToken, timeZone, windowDays, reloadToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,10 +255,10 @@ export default function StatsPage() {
         const token = await ensureToken();
         if (!token || cancelled) return;
 
-        const startIso = isoUtcDayStart(dayIso);
-        const endIso = isoUtcDayEnd(dayIso);
+        const startIso = isoLocalDayStartUtc(dayIso);
+        const endIso = isoLocalDayEndUtc(dayIso);
 
-        const hourlyParams = new URLSearchParams({ start: startIso, end: endIso });
+        const hourlyParams = new URLSearchParams({ start: startIso, end: endIso, tz: timeZone });
         const hourlyData = await apiFetch<StepsHourlyResponse>(
           `/v1/stats/steps/hourly?${hourlyParams.toString()}`,
           { method: "GET" },
@@ -247,7 +293,7 @@ export default function StatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [ensureToken, refresh, router, selectedDay, setAccessToken]);
+  }, [ensureToken, refresh, router, selectedDay, setAccessToken, timeZone]);
 
   return (
     <div className="space-y-6">
@@ -255,7 +301,7 @@ export default function StatsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">统计</h1>
           <p className="mt-1 text-sm text-foreground/70">
-            步数按天汇总，点击某天可查看按小时下钻与标记。
+            步数按本地日期汇总（{timeZone}），点击某天可查看按小时下钻与标记。
           </p>
         </div>
       </div>
@@ -355,7 +401,11 @@ export default function StatsPage() {
             {detailError ? <Notice variant="error">{detailError}</Notice> : null}
             {detailLoading ? <Notice>加载中…</Notice> : null}
 
-            {hourly.length > 0 ? <HourlyBars items={hourly} /> : <Notice>暂无小时数据。</Notice>}
+            {hourly.length > 0 ? (
+              <HourlyBars items={hourly} timeZone={timeZone} />
+            ) : (
+              <Notice>暂无小时数据。</Notice>
+            )}
 
             <div data-testid="stats-marks" className="space-y-2">
               <div className="text-sm font-semibold text-foreground">标记</div>
@@ -377,7 +427,8 @@ export default function StatsPage() {
                           </div>
                         </div>
                         <div className="mt-1 text-xs text-foreground/60">
-                          {m.start_at} → {m.end_at}
+                          {formatLocalDateTime(m.start_at, timeZone)} →{" "}
+                          {formatLocalDateTime(m.end_at, timeZone)}
                         </div>
                         {m.manual_note ? (
                           <div className="mt-2 text-xs text-foreground/70">

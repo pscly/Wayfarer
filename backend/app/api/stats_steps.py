@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query
@@ -18,6 +19,9 @@ from app.models.user import User
 
 
 router = APIRouter(prefix="/v1/stats", tags=["stats"])
+
+_TZ_OFFSET_MINUTES_MIN = -14 * 60
+_TZ_OFFSET_MINUTES_MAX = 14 * 60
 
 
 def _normalize_to_utc(value: dt.datetime) -> dt.datetime:
@@ -54,6 +58,30 @@ def _hours_inclusive(start_hour: dt.datetime, end_hour: dt.datetime) -> list[dt.
         out.append(cur)
         cur = cur + dt.timedelta(hours=1)
     return out
+
+
+def _resolve_bucket_tzinfo(*, tz: str | None, tz_offset_minutes: int | None) -> dt.tzinfo:
+    if tz:
+        try:
+            return ZoneInfo(tz)
+        except ZoneInfoNotFoundError as exc:
+            if tz_offset_minutes is None:
+                raise APIError(
+                    code="STATS_STEPS_INVALID_TZ",
+                    message=f"invalid tz: {tz}",
+                    status_code=400,
+                ) from exc
+
+    if tz_offset_minutes is not None:
+        if tz_offset_minutes < _TZ_OFFSET_MINUTES_MIN or tz_offset_minutes > _TZ_OFFSET_MINUTES_MAX:
+            raise APIError(
+                code="STATS_STEPS_INVALID_TZ_OFFSET",
+                message=f"tz_offset_minutes out of range: {tz_offset_minutes}",
+                status_code=400,
+            )
+        return dt.timezone(dt.timedelta(minutes=int(tz_offset_minutes)))
+
+    return dt.timezone.utc
 
 
 @dataclass(frozen=True)
@@ -117,6 +145,14 @@ async def steps_daily(
     *,
     start: dt.datetime = Query(..., description="UTC ISO8601 start time"),
     end: dt.datetime = Query(..., description="UTC ISO8601 end time"),
+    tz: str | None = Query(
+        None,
+        description="IANA timezone name for bucketing (e.g. Asia/Shanghai). When provided, `day` is computed in this timezone.",
+    ),
+    tz_offset_minutes: int | None = Query(
+        None,
+        description="Fallback fixed offset (minutes) for bucketing (e.g. 480 for UTC+08:00). Used when `tz` is absent/invalid.",
+    ),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StepsDailyResponse:
@@ -129,6 +165,8 @@ async def steps_daily(
             status_code=400,
         )
 
+    bucket_tz = _resolve_bucket_tzinfo(tz=tz, tz_offset_minutes=tz_offset_minutes)
+
     stmt = _tracks_excluding_deleted_edits_stmt(
         user_id=user.id, start_utc=start_utc, end_utc=end_utc
     )
@@ -137,12 +175,14 @@ async def steps_daily(
 
     steps_by_day: dict[str, int] = {}
     for r in rows:
-        t = _normalize_to_utc(r.recorded_at)
+        t = _normalize_to_utc(r.recorded_at).astimezone(bucket_tz)
         key = t.date().isoformat()
         steps_by_day[key] = steps_by_day.get(key, 0) + int(r.step_delta or 0)
 
     items: list[StepsDailyItem] = []
-    for d in _days_inclusive(start_utc.date(), end_utc.date()):
+    start_day = start_utc.astimezone(bucket_tz).date()
+    end_day = end_utc.astimezone(bucket_tz).date()
+    for d in _days_inclusive(start_day, end_day):
         key = d.isoformat()
         items.append(StepsDailyItem(day=key, steps=int(steps_by_day.get(key, 0))))
 
@@ -154,6 +194,14 @@ async def steps_hourly(
     *,
     start: dt.datetime = Query(..., description="UTC ISO8601 start time"),
     end: dt.datetime = Query(..., description="UTC ISO8601 end time"),
+    tz: str | None = Query(
+        None,
+        description="IANA timezone name for bucketing (e.g. Asia/Shanghai). When provided, `hour_start` is computed in this timezone.",
+    ),
+    tz_offset_minutes: int | None = Query(
+        None,
+        description="Fallback fixed offset (minutes) for bucketing (e.g. 480 for UTC+08:00). Used when `tz` is absent/invalid.",
+    ),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StepsHourlyResponse:
@@ -166,6 +214,8 @@ async def steps_hourly(
             status_code=400,
         )
 
+    bucket_tz = _resolve_bucket_tzinfo(tz=tz, tz_offset_minutes=tz_offset_minutes)
+
     stmt = _tracks_excluding_deleted_edits_stmt(
         user_id=user.id, start_utc=start_utc, end_utc=end_utc
     )
@@ -174,12 +224,16 @@ async def steps_hourly(
 
     steps_by_hour: dict[str, int] = {}
     for r in rows:
-        t = _normalize_to_utc(r.recorded_at).replace(minute=0, second=0, microsecond=0)
+        t = (
+            _normalize_to_utc(r.recorded_at)
+            .astimezone(bucket_tz)
+            .replace(minute=0, second=0, microsecond=0)
+        )
         key = _isoformat_z(t)
         steps_by_hour[key] = steps_by_hour.get(key, 0) + int(r.step_delta or 0)
 
-    start_hour = start_utc.replace(minute=0, second=0, microsecond=0)
-    end_hour = end_utc.replace(minute=0, second=0, microsecond=0)
+    start_hour = start_utc.astimezone(bucket_tz).replace(minute=0, second=0, microsecond=0)
+    end_hour = end_utc.astimezone(bucket_tz).replace(minute=0, second=0, microsecond=0)
 
     items: list[StepsHourlyItem] = []
     for h in _hours_inclusive(start_hour, end_hour):

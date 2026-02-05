@@ -102,6 +102,65 @@ def test_stats_steps_daily_and_hourly(client: TestClient) -> None:
     ]
 
 
+def test_stats_steps_daily_and_hourly_with_local_tz_bucketing(client: TestClient) -> None:
+    email = f"u-{uuid.uuid4().hex}@test.com"
+    username = f"u-{uuid.uuid4().hex}"
+    password = "password123!"
+    _register(client, email=email, username=username, password=password)
+    access = _login_access_token(client, username=username, password=password)
+
+    batch = {
+        "items": [
+            {
+                "client_point_id": str(uuid.uuid4()),
+                "recorded_at": "2026-01-30T23:30:00Z",
+                "latitude": 31.2304,
+                "longitude": 121.4737,
+                "accuracy": 8.0,
+                "step_count": 100,
+                "step_delta": 5,
+            },
+            {
+                "client_point_id": str(uuid.uuid4()),
+                "recorded_at": "2026-01-31T00:10:00Z",
+                "latitude": 31.2304,
+                "longitude": 121.4737,
+                "accuracy": 8.0,
+                "step_count": 105,
+                "step_delta": 3,
+            },
+        ]
+    }
+    r = client.post("/v1/tracks/batch", json=batch, headers=_auth_header(access))
+    assert r.status_code == 200, r.text
+
+    # Asia/Shanghai is UTC+08:00. Local day 2026-01-31 spans:
+    # 2026-01-30T16:00:00Z .. 2026-01-31T15:59:59Z
+    dr = client.get(
+        "/v1/stats/steps/daily?start=2026-01-30T16:00:00Z&end=2026-01-31T15:59:59Z&tz=Asia/Shanghai",
+        headers=_auth_header(access),
+    )
+    assert dr.status_code == 200, dr.text
+    daily = dr.json()["items"]
+    assert daily == [
+        {"day": "2026-01-31", "steps": 8},
+    ]
+
+    hr = client.get(
+        "/v1/stats/steps/hourly?start=2026-01-30T16:00:00Z&end=2026-01-31T15:59:59Z&tz=Asia/Shanghai",
+        headers=_auth_header(access),
+    )
+    assert hr.status_code == 200, hr.text
+    hourly_items = hr.json()["items"]
+    assert len(hourly_items) == 24
+    assert hourly_items[0]["hour_start"] == "2026-01-31T00:00:00+08:00"
+    assert hourly_items[-1]["hour_start"] == "2026-01-31T23:00:00+08:00"
+
+    steps_by_hour = {it["hour_start"]: it["steps"] for it in hourly_items}
+    assert steps_by_hour["2026-01-31T07:00:00+08:00"] == 5
+    assert steps_by_hour["2026-01-31T08:00:00+08:00"] == 3
+
+
 def test_stats_steps_invalid_range_returns_400(client: TestClient) -> None:
     email = f"u-{uuid.uuid4().hex}@test.com"
     username = f"u-{uuid.uuid4().hex}"
@@ -115,4 +174,3 @@ def test_stats_steps_invalid_range_returns_400(client: TestClient) -> None:
     )
     assert r.status_code == 400, r.text
     assert r.json()["code"] == "STATS_STEPS_INVALID_RANGE"
-
