@@ -119,13 +119,13 @@ fun AuthGateScreen(
                             username = registerUsername.trim(),
                             email = registerEmail.trim().ifBlank { null },
                             password = registerPassword,
-                            onResult = {
-                                authBusy = false
-                                showRegisterDialog = false
-                                AuthGateStore.dismiss(context)
-                                WayfarerSyncScheduler.enqueueOneTimeSync(context)
-                                onLoginSuccess()
-                            },
+                                onResult = {
+                                    authBusy = false
+                                    showRegisterDialog = false
+                                    AuthGateStore.dismiss(context)
+                                    WayfarerSyncScheduler.enqueueBootstrapRecent(context)
+                                    onLoginSuccess()
+                                },
                             onError = { err ->
                                 authBusy = false
                                 authError = UiErrorFormatter.format(err)
@@ -285,7 +285,7 @@ fun AuthGateScreen(
                                     authBusy = false
                                     loginPassword = ""
                                     AuthGateStore.dismiss(context)
-                                    WayfarerSyncScheduler.enqueueOneTimeSync(context)
+                                    WayfarerSyncScheduler.enqueueBootstrapRecent(context)
                                     onLoginSuccess()
                                 },
                                 onError = { err ->

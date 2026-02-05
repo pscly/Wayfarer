@@ -62,6 +62,22 @@ class WayfarerApiClient(
         val steps: Long,
     )
 
+    data class LifeEventListItem(
+        val id: String,
+        val eventType: String,
+        val startAtUtc: String,
+        val endAtUtc: String,
+        val locationName: String?,
+        val manualNote: String?,
+        val latitude: Double?,
+        val longitude: Double?,
+        val gcj02Latitude: Double?,
+        val gcj02Longitude: Double?,
+        val payloadJson: JSONObject?,
+        val createdAtUtc: String?,
+        val updatedAtUtc: String?,
+    )
+
     private fun baseUrl(): String = ServerConfigStore.readBaseUrl(appContext)
 
     private fun url(path: String): String {
@@ -311,6 +327,54 @@ class WayfarerApiClient(
 
     fun lifeEventCreate(accessToken: String, payload: JSONObject): JSONObject {
         return requestJson("POST", "/v1/life-events", accessToken = accessToken, body = payload)
+    }
+
+    fun lifeEventsList(
+        accessToken: String,
+        startUtc: String? = null,
+        endUtc: String? = null,
+        limit: Int = 200,
+        offset: Int = 0,
+    ): List<LifeEventListItem> {
+        fun optStringOrNull(obj: JSONObject, key: String): String? {
+            if (!obj.has(key) || obj.isNull(key)) return null
+            val v = obj.optString(key).trim()
+            return v.takeIf { s -> s.isNotBlank() }
+        }
+
+        val qs = StringBuilder()
+        if (!startUtc.isNullOrBlank()) qs.append("start=${encode(startUtc)}")
+        if (!endUtc.isNullOrBlank()) {
+            if (qs.isNotEmpty()) qs.append("&")
+            qs.append("end=${encode(endUtc)}")
+        }
+        if (qs.isNotEmpty()) qs.append("&")
+        qs.append("limit=$limit&offset=$offset")
+
+        val obj = requestJson("GET", "/v1/life-events?$qs", accessToken = accessToken)
+        val items = obj.optJSONArray("items") ?: JSONArray()
+        val out = ArrayList<LifeEventListItem>(items.length())
+        for (i in 0 until items.length()) {
+            val it = items.optJSONObject(i) ?: continue
+            out.add(
+                LifeEventListItem(
+                    id = it.optString("id").trim(),
+                    eventType = it.optString("event_type").trim(),
+                    startAtUtc = it.optString("start_at").trim(),
+                    endAtUtc = it.optString("end_at").trim(),
+                    locationName = optStringOrNull(it, "location_name"),
+                    manualNote = optStringOrNull(it, "manual_note"),
+                    latitude = if (!it.has("latitude") || it.isNull("latitude")) null else it.optDouble("latitude"),
+                    longitude = if (!it.has("longitude") || it.isNull("longitude")) null else it.optDouble("longitude"),
+                    gcj02Latitude = if (!it.has("gcj02_latitude") || it.isNull("gcj02_latitude")) null else it.optDouble("gcj02_latitude"),
+                    gcj02Longitude = if (!it.has("gcj02_longitude") || it.isNull("gcj02_longitude")) null else it.optDouble("gcj02_longitude"),
+                    payloadJson = it.optJSONObject("payload_json"),
+                    createdAtUtc = optStringOrNull(it, "created_at"),
+                    updatedAtUtc = optStringOrNull(it, "updated_at"),
+                ),
+            )
+        }
+        return out
     }
 
     private fun encode(s: String): String {

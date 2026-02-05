@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import com.wayfarer.android.tracking.LifeEventRepository
 import com.wayfarer.android.tracking.TrackingServiceController
 import com.wayfarer.android.tracking.TrackPointRepository
 import com.wayfarer.android.tracking.TrackingStatusStore
+import com.wayfarer.android.ui.sync.rememberSyncSnapshot
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
@@ -54,6 +56,9 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -78,6 +83,7 @@ private data class MarkerCoords(
 @Composable
 fun RecordsScreen() {
     val context = LocalContext.current
+    val syncSnapshot = rememberSyncSnapshot(context)
 
     var isTracking by rememberSaveable { mutableStateOf(TrackingStatusStore.readIsTracking(context)) }
     val locationGranted = hasLocationPermission(context)
@@ -88,6 +94,7 @@ fun RecordsScreen() {
 
     val repository = remember { TrackPointRepository(context) }
     val lifeEventRepository = remember { LifeEventRepository(context) }
+    val scope = rememberCoroutineScope()
 
     var activeRangeMark by remember { mutableStateOf<LifeEventEntity?>(null) }
 
@@ -108,6 +115,7 @@ fun RecordsScreen() {
     var sessionsLoading by remember { mutableStateOf(false) }
     var sessionsError by remember { mutableStateOf<String?>(null) }
     var sessions by remember { mutableStateOf<List<RecordSessionSummary>>(emptyList()) }
+    var sessionsLoadSeq by remember { mutableStateOf(0) }
 
     var selectedSession by rememberSaveable { mutableStateOf<RecordSessionSummary?>(null) }
     var detailPointsLoading by remember { mutableStateOf(false) }
@@ -130,16 +138,27 @@ fun RecordsScreen() {
     }
 
     fun refreshSessions() {
+        val mySeq = sessionsLoadSeq + 1
+        sessionsLoadSeq = mySeq
         sessionsLoading = true
         sessionsError = null
         repository.latestPointsAsync(
             limit = 5000,
             onResult = { pointsDesc ->
-                val pointsAsc = pointsDesc.asReversed()
-                sessions = buildSessions(pointsAsc)
-                sessionsLoading = false
+                if (sessionsLoadSeq != mySeq) return@latestPointsAsync
+                scope.launch {
+                    val computed =
+                        withContext(Dispatchers.Default) {
+                            val pointsAsc = pointsDesc.asReversed()
+                            buildSessions(pointsAsc)
+                        }
+                    if (sessionsLoadSeq != mySeq) return@launch
+                    sessions = computed
+                    sessionsLoading = false
+                }
             },
             onError = {
+                if (sessionsLoadSeq != mySeq) return@latestPointsAsync
                 sessionsError = it.message ?: it.toString()
                 sessionsLoading = false
             },
@@ -160,6 +179,11 @@ fun RecordsScreen() {
     }
 
     LaunchedEffect(Unit) {
+        refreshAll()
+    }
+
+    // 当后台同步拉取到新数据时，刷新界面，避免“登录后同步了但列表不更新”的体验。
+    LaunchedEffect(syncSnapshot.lastPullAtMs) {
         refreshAll()
     }
 

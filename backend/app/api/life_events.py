@@ -135,6 +135,13 @@ async def list_life_events(
         default=None, description="UTC ISO8601 start time"
     ),
     end: dt.datetime | None = Query(default=None, description="UTC ISO8601 end time"),
+    limit: int = Query(
+        default=200,
+        ge=1,
+        le=1000,
+        description="Pagination limit (max items to return)",
+    ),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> LifeEventListResponse:
@@ -156,6 +163,7 @@ async def list_life_events(
         stmt = stmt.where(LifeEvent.start_at <= end_utc)
 
     stmt = stmt.order_by(LifeEvent.start_at.asc())
+    stmt = stmt.limit(int(limit)).offset(int(offset))
     rows = (await db.execute(stmt)).scalars().all()
     return LifeEventListResponse(items=[_to_item(e) for e in rows])
 

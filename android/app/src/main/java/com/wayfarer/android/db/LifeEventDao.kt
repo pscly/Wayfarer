@@ -14,6 +14,9 @@ interface LifeEventDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertIgnore(entity: LifeEventEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertIgnoreAll(entities: List<LifeEventEntity>): List<Long>
+
     @Update
     fun update(entity: LifeEventEntity): Int
 

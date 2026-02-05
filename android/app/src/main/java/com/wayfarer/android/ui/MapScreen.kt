@@ -33,6 +33,7 @@ import com.wayfarer.android.amap.AmapMapView
 import com.wayfarer.android.amap.Wgs84Point
 import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.tracking.TrackPointRepository
+import com.wayfarer.android.ui.sync.rememberSyncSnapshot
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -47,6 +48,7 @@ private enum class MapRange {
 @Composable
 fun MapScreen() {
     val context = LocalContext.current
+    val syncSnapshot = rememberSyncSnapshot(context)
 
     val amapKeyRaw = remember { AmapApiKey.readFromManifest(context) }
     val amapKeyPresent = remember(amapKeyRaw) { AmapApiKey.isPresent(amapKeyRaw) }
@@ -93,7 +95,7 @@ fun MapScreen() {
         )
     }
 
-    LaunchedEffect(range) {
+    LaunchedEffect(range, syncSnapshot.lastPullAtMs) {
         refresh()
     }
 

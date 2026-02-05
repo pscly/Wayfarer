@@ -1,7 +1,9 @@
 package com.wayfarer.android.ui
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
@@ -9,6 +11,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -31,8 +34,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.sync.WayfarerSyncScheduler
+import com.wayfarer.android.sync.SyncStateStore
 import com.wayfarer.android.ui.auth.AuthGateScreen
 import com.wayfarer.android.ui.auth.AuthGateStore
+import com.wayfarer.android.ui.sync.SyncBanner
+import com.wayfarer.android.ui.sync.rememberSyncSnapshot
 
 private enum class AppTab {
     RECORDS,
@@ -107,19 +113,39 @@ private fun WayfarerAppShell(
     onAuthStateChanged: () -> Unit,
 ) {
     var tab by rememberSaveable { androidx.compose.runtime.mutableStateOf(AppTab.RECORDS) }
+    var settingsRoute by rememberSaveable { androidx.compose.runtime.mutableStateOf(SettingsRoute.HOME) }
 
-    val title = stringResource(
-        when (tab) {
-            AppTab.RECORDS -> com.wayfarer.android.R.string.records_title
-            AppTab.MAP -> com.wayfarer.android.R.string.map_title
-            AppTab.STATS -> com.wayfarer.android.R.string.stats_title
-            AppTab.SETTINGS -> com.wayfarer.android.R.string.tab_settings
-        },
-    )
+    val context = LocalContext.current
+    val syncSnapshot = rememberSyncSnapshot(context)
+    val userId = AuthStore.readUserId(context)
+    val refresh = AuthStore.readRefreshToken(context)
+    val isLoggedIn = !userId.isNullOrBlank() && !refresh.isNullOrBlank()
+
+    val title =
+        if (tab == AppTab.SETTINGS) {
+            settingsTitle(settingsRoute)
+        } else {
+            stringResource(
+                when (tab) {
+                    AppTab.RECORDS -> com.wayfarer.android.R.string.records_title
+                    AppTab.MAP -> com.wayfarer.android.R.string.map_title
+                    AppTab.STATS -> com.wayfarer.android.R.string.stats_title
+                    AppTab.SETTINGS -> com.wayfarer.android.R.string.tab_settings
+                },
+            )
+        }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
+                navigationIcon = {
+                    val canBack = tab == AppTab.SETTINGS && settingsRoute != SettingsRoute.HOME
+                    if (canBack) {
+                        IconButton(onClick = { settingsRoute = SettingsRoute.HOME }) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                        }
+                    }
+                },
                 title = {
                     Text(
                         text = title,
@@ -158,30 +184,112 @@ private fun WayfarerAppShell(
                 )
             }
         },
-    ) { paddingValues ->
+            ) { paddingValues ->
         when (tab) {
             AppTab.RECORDS -> androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier.padding(paddingValues),
             ) {
-                RecordsScreen()
+                androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+                    if (isLoggedIn) {
+                        SyncBanner(
+                            snapshot = syncSnapshot,
+                            onOpenDetails = {
+                                tab = AppTab.SETTINGS
+                                settingsRoute = SettingsRoute.SYNC
+                            },
+                            onRetry = {
+                                when {
+                                    syncSnapshot.bootstrapDoneAtMs == null ->
+                                        WayfarerSyncScheduler.enqueueBootstrapRecent(context)
+                                    syncSnapshot.backfillDoneAtMs == null ->
+                                        WayfarerSyncScheduler.enqueueBackfillStep(context, delayMinutes = 0)
+                                    else -> WayfarerSyncScheduler.enqueueOneTimeSync(context)
+                                }
+                            },
+                            onResumeBackfill = {
+                                SyncStateStore.setBackfillEnabled(context, true)
+                                WayfarerSyncScheduler.enqueueBackfillStep(context, delayMinutes = 0)
+                            },
+                        )
+                    }
+                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                        RecordsScreen()
+                    }
+                }
             }
 
             AppTab.MAP -> androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier.padding(paddingValues),
             ) {
-                MapScreen()
+                androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+                    if (isLoggedIn) {
+                        SyncBanner(
+                            snapshot = syncSnapshot,
+                            onOpenDetails = {
+                                tab = AppTab.SETTINGS
+                                settingsRoute = SettingsRoute.SYNC
+                            },
+                            onRetry = {
+                                when {
+                                    syncSnapshot.bootstrapDoneAtMs == null ->
+                                        WayfarerSyncScheduler.enqueueBootstrapRecent(context)
+                                    syncSnapshot.backfillDoneAtMs == null ->
+                                        WayfarerSyncScheduler.enqueueBackfillStep(context, delayMinutes = 0)
+                                    else -> WayfarerSyncScheduler.enqueueOneTimeSync(context)
+                                }
+                            },
+                            onResumeBackfill = {
+                                SyncStateStore.setBackfillEnabled(context, true)
+                                WayfarerSyncScheduler.enqueueBackfillStep(context, delayMinutes = 0)
+                            },
+                        )
+                    }
+                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                        MapScreen()
+                    }
+                }
             }
 
             AppTab.STATS -> androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier.padding(paddingValues),
             ) {
-                StatsScreen()
+                androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+                    if (isLoggedIn) {
+                        SyncBanner(
+                            snapshot = syncSnapshot,
+                            onOpenDetails = {
+                                tab = AppTab.SETTINGS
+                                settingsRoute = SettingsRoute.SYNC
+                            },
+                            onRetry = {
+                                when {
+                                    syncSnapshot.bootstrapDoneAtMs == null ->
+                                        WayfarerSyncScheduler.enqueueBootstrapRecent(context)
+                                    syncSnapshot.backfillDoneAtMs == null ->
+                                        WayfarerSyncScheduler.enqueueBackfillStep(context, delayMinutes = 0)
+                                    else -> WayfarerSyncScheduler.enqueueOneTimeSync(context)
+                                }
+                            },
+                            onResumeBackfill = {
+                                SyncStateStore.setBackfillEnabled(context, true)
+                                WayfarerSyncScheduler.enqueueBackfillStep(context, delayMinutes = 0)
+                            },
+                        )
+                    }
+                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                        StatsScreen()
+                    }
+                }
             }
 
             AppTab.SETTINGS -> androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier.padding(paddingValues),
             ) {
-                SettingsScreen(onAuthStateChanged = onAuthStateChanged)
+                SettingsScreen(
+                    route = settingsRoute,
+                    onRouteChange = { settingsRoute = it },
+                    onAuthStateChanged = onAuthStateChanged,
+                )
             }
         }
     }

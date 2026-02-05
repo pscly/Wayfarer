@@ -44,9 +44,17 @@ class WayfarerSyncManager(
     )
 
     data class PullResult(
-        val fetched: Int,
-        val inserted: Int,
-    )
+        val tracksFetched: Int,
+        val tracksInserted: Int,
+        val lifeEventsFetched: Int,
+        val lifeEventsInserted: Int,
+    ) {
+        val fetched: Int
+            get() = tracksFetched + lifeEventsFetched
+
+        val inserted: Int
+            get() = tracksInserted + lifeEventsInserted
+    }
 
     private data class TrackPointsUploadCounts(
         val attempted: Int,
@@ -95,7 +103,12 @@ class WayfarerSyncManager(
                 AuthStore.writeTokens(appContext, accessToken = token.accessToken, refreshToken = refresh)
 
                 val me = api.me(accessToken = token.accessToken)
-                AuthStore.writeUserInfo(appContext, userId = me.userId, username = me.username)
+                AuthStore.writeUserInfo(
+                    appContext,
+                    userId = me.userId,
+                    username = me.username,
+                    createdAtUtc = me.createdAt,
+                )
 
                 // Bind offline points to the authenticated user for subsequent sync.
                 runCatching { dao.reassignUser(oldUserId = USER_ID_LOCAL, newUserId = me.userId) }
@@ -128,7 +141,12 @@ class WayfarerSyncManager(
                 AuthStore.writeTokens(appContext, accessToken = token.accessToken, refreshToken = refresh)
 
                 val me = api.me(accessToken = token.accessToken)
-                AuthStore.writeUserInfo(appContext, userId = me.userId, username = me.username)
+                AuthStore.writeUserInfo(
+                    appContext,
+                    userId = me.userId,
+                    username = me.username,
+                    createdAtUtc = me.createdAt,
+                )
                 runCatching { dao.reassignUser(oldUserId = USER_ID_LOCAL, newUserId = me.userId) }
                 runCatching {
                     lifeEventDao.reassignUser(oldUserId = USER_ID_LOCAL, newUserId = me.userId)
@@ -501,8 +519,8 @@ class WayfarerSyncManager(
         val now = Instant.now().toString()
         var offset = 0
         val limit = 5000
-        var fetched = 0
-        var inserted = 0
+        var tracksFetched = 0
+        var tracksInserted = 0
 
         while (true) {
             val page = authenticated { token ->
@@ -516,7 +534,7 @@ class WayfarerSyncManager(
             }
             if (page.isEmpty()) break
 
-            fetched += page.size
+            tracksFetched += page.size
 
             val entities = page.map { it ->
                 TrackPointEntity(
@@ -552,7 +570,7 @@ class WayfarerSyncManager(
             }
 
             val insertResults = dao.insertIgnoreAll(entities)
-            inserted += insertResults.count { id -> id != -1L }
+            tracksInserted += insertResults.count { id -> id != -1L }
 
             // Mark any existing local rows as ACKED as well.
             val ids = page.map { it.clientPointId }
@@ -571,8 +589,91 @@ class WayfarerSyncManager(
             if (page.size < limit) break
         }
 
+        // Pull life events as well (markers + auto events).
+        var eventsOffset = 0
+        val eventsLimit = 200
+        var lifeEventsFetched = 0
+        var lifeEventsInserted = 0
+
+        while (true) {
+            val page = authenticated { token ->
+                api.lifeEventsList(
+                    accessToken = token,
+                    startUtc = startUtc,
+                    endUtc = endUtc,
+                    limit = eventsLimit,
+                    offset = eventsOffset,
+                )
+            }
+            if (page.isEmpty()) break
+
+            lifeEventsFetched += page.size
+
+            val entities = page.map { e ->
+                val label =
+                    e.locationName?.trim()?.takeIf { it.isNotBlank() }
+                        ?: defaultLifeEventLabel(e.eventType)
+
+                val createdAt = e.createdAtUtc?.trim()?.takeIf { it.isNotBlank() } ?: e.startAtUtc
+                val updatedAt = e.updatedAtUtc?.trim()?.takeIf { it.isNotBlank() } ?: createdAt
+
+                LifeEventEntity(
+                    userId = userId,
+                    eventId = e.id,
+                    eventType = e.eventType,
+                    startAtUtc = e.startAtUtc,
+                    endAtUtc = e.endAtUtc,
+                    label = label,
+                    note = e.manualNote,
+                    latitudeWgs84 = e.latitude,
+                    longitudeWgs84 = e.longitude,
+                    latitudeGcj02 = e.gcj02Latitude,
+                    longitudeGcj02 = e.gcj02Longitude,
+                    payloadJson = e.payloadJson?.toString(),
+                    syncStatus = LifeEventEntity.SyncStatus.ACKED,
+                    lastSyncError = null,
+                    lastSyncedAtUtc = now,
+                    createdAtUtc = createdAt,
+                    updatedAtUtc = updatedAt,
+                )
+            }
+
+            val insertResults = lifeEventDao.insertIgnoreAll(entities)
+            lifeEventsInserted += insertResults.count { id -> id != -1L }
+
+            val ids = page.map { it.id }.filter { it.isNotBlank() }
+            if (ids.isNotEmpty()) {
+                lifeEventDao.markSyncStatusByEventIds(
+                    userId = userId,
+                    eventIds = ids,
+                    status = LifeEventEntity.SyncStatus.ACKED,
+                    error = null,
+                    syncedAtUtc = now,
+                    updatedAtUtc = now,
+                )
+            }
+
+            eventsOffset += page.size
+            if (page.size < eventsLimit) break
+        }
+
         SyncStateStore.markPullOk(appContext)
-        return PullResult(fetched = fetched, inserted = inserted)
+        return PullResult(
+            tracksFetched = tracksFetched,
+            tracksInserted = tracksInserted,
+            lifeEventsFetched = lifeEventsFetched,
+            lifeEventsInserted = lifeEventsInserted,
+        )
+    }
+
+    private fun defaultLifeEventLabel(eventType: String): String {
+        val t = eventType.trim().uppercase()
+        return when (t) {
+            "STAY" -> "停留"
+            "MARK_POINT" -> "标记"
+            "MARK_RANGE" -> "区间标记"
+            else -> eventType.trim().ifBlank { "事件" }
+        }
     }
 
     private fun formatRejectedError(item: RejectedItem): String {

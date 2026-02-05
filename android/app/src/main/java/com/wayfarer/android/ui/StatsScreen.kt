@@ -49,6 +49,7 @@ import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.tracking.LifeEventRepository
 import com.wayfarer.android.tracking.StatsStepsRepository
 import com.wayfarer.android.tracking.TrackPointRepository
+import com.wayfarer.android.ui.sync.rememberSyncSnapshot
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -70,6 +71,7 @@ private data class DayStat(
 @Composable
 fun StatsScreen() {
     val context = LocalContext.current
+    val syncSnapshot = rememberSyncSnapshot(context)
     val repository = remember { TrackPointRepository(context) }
     val lifeEventRepository = remember { LifeEventRepository(context) }
     val stepsRepository = remember { StatsStepsRepository(context) }
@@ -184,11 +186,11 @@ fun StatsScreen() {
         )
     }
 
-    LaunchedEffect(windowDays) {
+    LaunchedEffect(windowDays, syncSnapshot.lastPullAtMs) {
         refresh()
     }
 
-    LaunchedEffect(selectedDayIso) {
+    LaunchedEffect(selectedDayIso, syncSnapshot.lastPullAtMs) {
         val dayIso = selectedDayIso ?: run {
             hourlyLoadSeq = hourlyLoadSeq + 1
             marks = emptyList()

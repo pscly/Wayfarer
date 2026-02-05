@@ -114,7 +114,7 @@
     <string name="settings_section_data">数据管理</string>
     <string name="settings_clear_local_data">清空本地数据</string>
     <string name="settings_clear_local_data_confirm_title">确认清空？</string>
-    <string name="settings_clear_local_data_confirm_body">这会删除本机所有轨迹点（不可恢复）。</string>
+    <string name="settings_clear_local_data_confirm_body">这会删除本机所有轨迹点与标记（不可恢复）。</string>
     <string name="settings_confirm">确定</string>
     <string name="settings_cancel">取消</string>
     <string name="tracking_start">开始记录</string>
@@ -130,7 +130,7 @@
     <string name="amap_key_missing_manifest_invalid">Manifest meta-data com.amap.api.v2.apikey 已设置，但看起来像占位符/无效值。</string>
 
     <!-- Developer tools -->
-    <string name="dev_tools_hint">连续点击标题 7 次开启开发者工具</string>
+    <string name="dev_tools_hint">连续点击版本号 7 次开启开发者工具</string>
     <string name="dev_tools_title">开发者工具</string>
     <string name="dev_step_sensor">计步传感器：%1$s</string>
     <string name="dev_step_count">步数：%1$s</string>
