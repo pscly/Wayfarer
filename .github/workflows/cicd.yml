@@ -241,6 +241,15 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ci
           chmod 600 ~/.ssh/id_ci
 
+          # Print a non-sensitive fingerprint to help debug "Permission denied (publickey)" issues.
+          # (This does not reveal the private key; it only shows the public-key fingerprint.)
+          if ssh-keygen -lf ~/.ssh/id_ci >/dev/null 2>&1; then
+            echo "Deploy SSH key fingerprint (for server authorized_keys matching):"
+            ssh-keygen -lf ~/.ssh/id_ci || true
+          else
+            echo "::warning::Unable to parse deploy SSH private key (invalid format or encrypted key)."
+          fi
+
           tmp_known_hosts="$(mktemp)"
           : > "$tmp_known_hosts"
 
@@ -604,6 +613,86 @@ jobs:
           print('SSH remote deploy failed. Sanitized stderr (excerpt):')
           print(text)
           PY
+
+              # If this looks like an auth failure, run a second SSH attempt with -vv to show which key is offered.
+              if grep -qiE 'permission denied|authentication failed|too many authentication failures|no supported authentication methods' "$SSH_ERR_FILE"; then
+                SSH_DEBUG_FILE="$(mktemp)"
+                ssh -vv \
+                  -i ~/.ssh/id_ci \
+                  -p "$PORT" \
+                  -o BatchMode=yes \
+                  -o IdentitiesOnly=yes \
+                  -o StrictHostKeyChecking=yes \
+                  -o UserKnownHostsFile=~/.ssh/known_hosts \
+                  -o PreferredAuthentications=publickey \
+                  -o PasswordAuthentication=no \
+                  -o KbdInteractiveAuthentication=no \
+                  "$SSH_USER@$HOST" \
+                  "true" 2>"$SSH_DEBUG_FILE" || true
+
+                python - "$SSH_DEBUG_FILE" <<'PY'
+          import os
+          import re
+          import sys
+
+          path = sys.argv[1]
+          try:
+              data = open(path, 'r', errors='replace').read().splitlines()
+          except FileNotFoundError:
+              data = []
+
+          host = os.environ.get('HOST', '')
+          user = os.environ.get('SSH_USER', '')
+          port = os.environ.get('PORT', '')
+
+          patterns = [
+              r'Offering public key',
+              r'Server accepts key',
+              r'sign_and_send_pubkey',
+              r'Authentications that can continue',
+              r'Next authentication method',
+              r'No more authentication methods',
+              r'Permission denied',
+              r'Load key',
+              r'identity file',
+              r'Host key verification failed',
+              r'REMOTE HOST IDENTIFICATION HAS CHANGED',
+              r'Could not resolve hostname',
+              r'Connection timed out',
+              r'Connection refused',
+              r'No route to host',
+              r'Network is unreachable',
+              r'kex_exchange_identification',
+          ]
+
+          sel = [ln for ln in data if any(re.search(p, ln, re.I) for p in patterns)]
+          if not sel:
+              sel = data[:80]
+
+          text = "\n".join(sel)
+
+          # Redact host/user/port and raw IPs.
+          if host and port:
+              text = text.replace(f'[{host}]:{port}', '<HOST>:<PORT>')
+          if user and host:
+              text = text.replace(f'{user}@{host}', '<SSH_USER>@<HOST>')
+          if user:
+              text = text.replace(user, '<SSH_USER>')
+          if host:
+              text = text.replace(host, '<HOST>')
+          if port:
+              text = text.replace(f' port {port}', ' port <PORT>')
+              text = text.replace(f':{port}', ':<PORT>')
+
+          # IPv4 redaction (best-effort)
+          text = re.sub(r'\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b', '<IP>', text)
+
+          print('SSH debug (-vv) sanitized excerpt:')
+          print(text)
+          PY
+                rm -f "$SSH_DEBUG_FILE" || true
+              fi
+
               rm -f "$SSH_ERR_FILE" || true
               exit 1
             fi
