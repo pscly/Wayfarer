@@ -241,11 +241,29 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ci
           chmod 600 ~/.ssh/id_ci
 
+          tmp_known_hosts="$(mktemp)"
+          : > "$tmp_known_hosts"
+
+          # Always include repo-pinned known_hosts when present, even if a secret is provided.
+          # This reduces breakage when secrets.HOST switches between domain/IP aliases.
+          if [[ -f ".github/known_hosts" ]]; then
+            tr -d '\r' < .github/known_hosts >> "$tmp_known_hosts"
+            printf '\n' >> "$tmp_known_hosts"
+          fi
+
           if [[ -n "${KNOWN_HOSTS//[[:space:]]/}" ]]; then
-            printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
-          elif [[ -f ".github/known_hosts" ]]; then
-            tr -d '\r' < .github/known_hosts > ~/.ssh/known_hosts
-          else
+            printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' >> "$tmp_known_hosts"
+            printf '\n' >> "$tmp_known_hosts"
+          fi
+
+          if ! awk 'NF {print}' "$tmp_known_hosts" > ~/.ssh/known_hosts; then
+            echo "::error::Failed to write ~/.ssh/known_hosts."
+            rm -f "$tmp_known_hosts" || true
+            exit 1
+          fi
+          rm -f "$tmp_known_hosts" || true
+
+          if [[ ! -s ~/.ssh/known_hosts ]]; then
             echo "::error::Missing pinned known_hosts. Provide secrets.KNOWN_HOSTS or commit .github/known_hosts."
             exit 1
           fi
@@ -258,33 +276,27 @@ jobs:
             exit 1
           fi
 
-          has_target=0
-          if ssh-keygen -F "[$HOST]:$PORT" -f ~/.ssh/known_hosts >/dev/null 2>&1 || ssh-keygen -F "$HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
-            has_target=1
-          else
-            # Auto-alias: if known_hosts contains exactly one unique host key, assume it's the deploy key
-            # and add an alias line for the current secrets.HOST (useful when switching between domain/IP).
-            unique_keys="$(
+          if ! ssh-keygen -F "[$HOST]:$PORT" -f ~/.ssh/known_hosts >/dev/null 2>&1 && ! ssh-keygen -F "$HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
+            # Auto-alias (safe):
+            # If repo-pinned `.github/known_hosts` exists, use its key to create an alias entry for secrets.HOST.
+            # This is commonly needed when HOST switches between domain / public IP / internal IP.
+            repo_host_key="$(
               awk '
-                NF >= 3 && $1 !~ /^#/ && $1 !~ /^@/ {
-                  kt=$2; k=$3;
-                  if (kt != "" && k != "") print kt, k
-                }
-              ' ~/.ssh/known_hosts | sort -u
+                NF >= 3 && $1 !~ /^#/ && $1 !~ /^@/ && $2 == "ssh-ed25519" { print $2, $3; exit }
+                NF >= 3 && $1 !~ /^#/ && $1 !~ /^@/ { print $2, $3; exit }
+              ' .github/known_hosts 2>/dev/null || true
             )"
-            key_count="$(printf '%s\n' "$unique_keys" | sed '/^$/d' | wc -l | tr -d ' ')"
-            if [[ "$key_count" == "1" ]]; then
-              host_key="$(printf '%s\n' "$unique_keys" | sed '/^$/d' | head -n 1)"
-              printf '%s %s\n' "$HOST" "$host_key" >> ~/.ssh/known_hosts
+            if [[ -n "${repo_host_key//[[:space:]]/}" ]]; then
+              printf '%s %s\n' "$HOST" "$repo_host_key" >> ~/.ssh/known_hosts
               if [[ "$PORT" != "22" ]]; then
-                printf '[%s]:%s %s\n' "$HOST" "$PORT" "$host_key" >> ~/.ssh/known_hosts
+                printf '[%s]:%s %s\n' "$HOST" "$PORT" "$repo_host_key" >> ~/.ssh/known_hosts
               fi
-              has_target=1
             fi
           fi
 
-          if [[ "$has_target" != "1" ]]; then
+          if ! ssh-keygen -F "[$HOST]:$PORT" -f ~/.ssh/known_hosts >/dev/null 2>&1 && ! ssh-keygen -F "$HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
             echo "::error::Pinned known_hosts missing entry for deploy target (secrets.HOST / secrets.PORT). Update secrets.KNOWN_HOSTS or .github/known_hosts."
+            echo "::error::Debug: pinned_known_hosts_lines=$(wc -l < ~/.ssh/known_hosts | tr -d ' ')"
             exit 1
           fi
 
