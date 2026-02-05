@@ -547,7 +547,7 @@ jobs:
 
             # Exit non-zero to fail the job even if rollback succeeded.
             exit 1
-            EOF
+          EOF
             then
               python - "$SSH_ERR_FILE" <<'PY'
           import os
