@@ -88,15 +88,10 @@ fun SettingsScreen(
 
     val syncManager = remember { WayfarerSyncManager(context) }
 
-    // Server base URL override (optional). Empty => use BuildConfig default.
-    var serverUrlInput by rememberSaveable {
-        mutableStateOf(ServerConfigStore.readBaseUrlOverride(context) ?: "")
-    }
+    // Server base URL（只读，不允许在 App 内修改）。
     var currentBaseUrl by remember { mutableStateOf(ServerConfigStore.readBaseUrl(context)) }
     var connectionTesting by remember { mutableStateOf(false) }
     var connectionOk by remember { mutableStateOf<Boolean?>(null) }
-    var serverUrlError by remember { mutableStateOf<String?>(null) }
-    var serverUrlInfo by remember { mutableStateOf<String?>(null) }
 
     // Auth state (stored in SharedPreferences).
     var authedUserId by remember { mutableStateOf(AuthStore.readUserId(context)) }
@@ -160,10 +155,6 @@ fun SettingsScreen(
         context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
     val gpsEnabled = isGpsEnabled(context)
-
-    val serverUrlInvalidMsg = stringResource(com.wayfarer.android.R.string.settings_server_url_invalid)
-    val serverUrlAutoFixedMsg = stringResource(com.wayfarer.android.R.string.settings_server_url_auto_fixed)
-    val httpNotAllowedMsg = stringResource(com.wayfarer.android.R.string.auth_gate_http_not_allowed)
 
     fun copyToClipboard(label: String, text: String) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
@@ -413,7 +404,7 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.titleMedium,
                 )
 
-                // Server
+                // Server（只读）
                 Text(
                     text = stringResource(com.wayfarer.android.R.string.settings_server_url_current, currentBaseUrl),
                     style = MaterialTheme.typography.bodySmall,
@@ -421,86 +412,7 @@ fun SettingsScreen(
                     fontFamily = FontFamily.Monospace,
                 )
 
-                if (!BuildConfig.DEBUG && currentBaseUrl.startsWith("http://")) {
-                    Text(
-                        text = httpNotAllowedMsg,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-
-                OutlinedTextField(
-                    value = serverUrlInput,
-                    onValueChange = {
-                        serverUrlInput = it
-                        serverUrlError = null
-                        serverUrlInfo = null
-                    },
-                    label = { Text(stringResource(com.wayfarer.android.R.string.settings_server_url_label)) },
-                    placeholder = { Text(stringResource(com.wayfarer.android.R.string.settings_server_url_hint)) },
-                    singleLine = true,
-                    enabled = !authBusy && !syncBusy,
-                )
-
-                if (!serverUrlError.isNullOrBlank()) {
-                    Text(
-                        text = serverUrlError ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                } else if (!serverUrlInfo.isNullOrBlank()) {
-                    Text(
-                        text = serverUrlInfo ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
                 Row {
-                    FilledTonalButton(
-                        enabled = !authBusy && !syncBusy,
-                        onClick = {
-                            val raw = serverUrlInput.trim()
-                            val normalized = ServerConfigStore.normalizeBaseUrlOrNull(raw)
-                            if (normalized == null) {
-                                serverUrlError = serverUrlInvalidMsg
-                                return@FilledTonalButton
-                            }
-                            if (!BuildConfig.DEBUG && normalized.startsWith("http://")) {
-                                serverUrlError = httpNotAllowedMsg
-                                return@FilledTonalButton
-                            }
-                            val hadPath = raw.substringAfter("://", raw).contains("/")
-                            serverUrlInfo = if (hadPath) serverUrlAutoFixedMsg else null
-                            serverUrlError = null
-
-                            serverUrlInput = normalized
-                            ServerConfigStore.saveBaseUrl(context, normalized)
-                            reloadBaseUrlState()
-                            connectionOk = null
-                        },
-                    ) {
-                        Text(stringResource(com.wayfarer.android.R.string.settings_server_url_save))
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    TextButton(
-                        enabled = !authBusy && !syncBusy,
-                        onClick = {
-                            serverUrlInput = ""
-                            serverUrlError = null
-                            serverUrlInfo = null
-                            ServerConfigStore.saveBaseUrl(context, "")
-                            reloadBaseUrlState()
-                            connectionOk = null
-                        },
-                    ) {
-                        Text(stringResource(com.wayfarer.android.R.string.settings_server_url_reset))
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
                     Button(
                         enabled = !connectionTesting && !authBusy && !syncBusy,
                         onClick = {

@@ -38,7 +38,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.wayfarer.android.BuildConfig
 import com.wayfarer.android.R
 import com.wayfarer.android.api.ServerConfigStore
 import com.wayfarer.android.sync.WayfarerSyncManager
@@ -56,15 +55,10 @@ fun AuthGateScreen(
 
     val syncManager = remember { WayfarerSyncManager(context) }
 
-    // Server base URL override (optional). Empty => use BuildConfig default.
-    var serverUrlInput by rememberSaveable {
-        mutableStateOf(ServerConfigStore.readBaseUrlOverride(context) ?: "")
-    }
-    var currentBaseUrl by remember { mutableStateOf(ServerConfigStore.readBaseUrl(context)) }
+    // Server base URL（只读，不允许在 App 内修改）。
+    val currentBaseUrl = remember { ServerConfigStore.readBaseUrl(context) }
     var connectionTesting by remember { mutableStateOf(false) }
     var connectionOk by remember { mutableStateOf<Boolean?>(null) }
-    var serverUrlError by remember { mutableStateOf<String?>(null) }
-    var serverUrlInfo by remember { mutableStateOf<String?>(null) }
 
     // Auth form.
     var loginUsername by rememberSaveable { mutableStateOf("") }
@@ -77,14 +71,6 @@ fun AuthGateScreen(
     var registerUsername by rememberSaveable { mutableStateOf("") }
     var registerEmail by rememberSaveable { mutableStateOf("") }
     var registerPassword by rememberSaveable { mutableStateOf("") }
-
-    fun reloadBaseUrlState() {
-        currentBaseUrl = ServerConfigStore.readBaseUrl(context)
-    }
-
-    val serverUrlInvalidMsg = stringResource(R.string.settings_server_url_invalid)
-    val serverUrlAutoFixedMsg = stringResource(R.string.settings_server_url_auto_fixed)
-    val httpNotAllowedMsg = stringResource(R.string.auth_gate_http_not_allowed)
 
     fun copyToClipboard(label: String, text: String) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
@@ -199,86 +185,7 @@ fun AuthGateScreen(
                     fontFamily = FontFamily.Monospace,
                 )
 
-                if (!BuildConfig.DEBUG && currentBaseUrl.startsWith("http://")) {
-                    Text(
-                        text = stringResource(R.string.auth_gate_http_not_allowed),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-
-                OutlinedTextField(
-                    value = serverUrlInput,
-                    onValueChange = {
-                        serverUrlInput = it
-                        serverUrlError = null
-                        serverUrlInfo = null
-                    },
-                    label = { Text(stringResource(R.string.settings_server_url_label)) },
-                    placeholder = { Text(stringResource(R.string.settings_server_url_hint)) },
-                    singleLine = true,
-                    enabled = !authBusy,
-                )
-
-                if (!serverUrlError.isNullOrBlank()) {
-                    Text(
-                        text = serverUrlError ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                } else if (!serverUrlInfo.isNullOrBlank()) {
-                    Text(
-                        text = serverUrlInfo ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
                 Row {
-                    FilledTonalButton(
-                        enabled = !authBusy,
-                        onClick = {
-                            val raw = serverUrlInput.trim()
-                            val normalized = ServerConfigStore.normalizeBaseUrlOrNull(raw)
-                            if (normalized == null) {
-                                serverUrlError = serverUrlInvalidMsg
-                                return@FilledTonalButton
-                            }
-                            if (!BuildConfig.DEBUG && normalized.startsWith("http://")) {
-                                serverUrlError = httpNotAllowedMsg
-                                return@FilledTonalButton
-                            }
-                            val hadPath = raw.substringAfter("://", raw).contains("/")
-                            serverUrlInfo = if (hadPath) serverUrlAutoFixedMsg else null
-                            serverUrlError = null
-
-                            serverUrlInput = normalized
-                            ServerConfigStore.saveBaseUrl(context, normalized)
-                            reloadBaseUrlState()
-                            connectionOk = null
-                        },
-                    ) {
-                        Text(stringResource(R.string.settings_server_url_save))
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    TextButton(
-                        enabled = !authBusy,
-                        onClick = {
-                            serverUrlInput = ""
-                            serverUrlError = null
-                            serverUrlInfo = null
-                            ServerConfigStore.saveBaseUrl(context, "")
-                            reloadBaseUrlState()
-                            connectionOk = null
-                        },
-                    ) {
-                        Text(stringResource(R.string.settings_server_url_reset))
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
                     Button(
                         enabled = !connectionTesting && !authBusy,
                         onClick = {

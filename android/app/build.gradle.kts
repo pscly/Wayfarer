@@ -32,7 +32,7 @@ val amapKey: String = run {
 // Override priority (highest -> lowest):
 // 1) Gradle property: -PWAYFARER_API_BASE_URL=...
 // 2) Environment variable: WAYFARER_API_BASE_URL
-// 3) Per-buildType default (debug uses emulator-friendly localhost).
+// 3) Per-buildType default (debug/release/benchmark use production by default).
 fun resolveWayfarerApiBaseUrl(defaultValue: String): String {
     val fromGradleProp = (project.findProperty("WAYFARER_API_BASE_URL") as String?)?.trim().orEmpty()
     val fromEnv = System.getenv("WAYFARER_API_BASE_URL")?.trim().orEmpty()
@@ -65,7 +65,9 @@ android {
 
     buildTypes {
         debug {
-            val url = resolveWayfarerApiBaseUrl("http://10.0.2.2:8000")
+            // 产品策略：默认直接连线上服务器，不要求用户手动配置服务器地址。
+            // 如需本地联调，可通过 -PWAYFARER_API_BASE_URL 或环境变量 WAYFARER_API_BASE_URL 覆盖。
+            val url = resolveWayfarerApiBaseUrl("https://waf.pscly.cc")
             buildConfigField("String", "WAYFARER_API_BASE_URL", "\"$url\"")
         }
 
