@@ -572,9 +572,11 @@ WantedBy=multi-user.target
 
 deploy 需要的 Secrets（名称以 workflow 为准）：
 
-- `CI`：SSH 私钥
+- `CI`（或 `SSH_PRIVATE_KEY`）：SSH 私钥（GitHub Actions runner -> 目标机）
 - `HOST`、`PORT`、`USER`：目标机信息
-- `KNOWN_HOSTS`：pinned known_hosts（推荐固定，保持 `StrictHostKeyChecking=yes`）
+  - `HOST` 必须是**公网可达**的域名或公网 IP（因为 GitHub-hosted runner 在外网）。
+  - 如果误填 `10.*` / `172.16-31.*` / `192.168.*` / `127.*` 等内网/回环地址，workflow 会直接报错并中止 deploy（防止白跑 CI）。
+- `KNOWN_HOSTS`：pinned known_hosts（推荐固定，保持 `StrictHostKeyChecking=yes`；更换 `HOST` 后记得同步更新）
 
 说明：CI/CD 属于“可选能力”，不影响本地开发。
 
@@ -650,4 +652,3 @@ TRACE_ID=REPLACE_WITH_TRACE_ID DO_UPGRADE=1 sh scripts/prod_diagnose.sh
 ## License
 
 本仓库暂未提供独立 LICENSE 文件；如需开源协议，请先补齐 LICENSE 并在此处声明。
-

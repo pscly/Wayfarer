@@ -23,13 +23,59 @@ jobs:
     # Safety gate: deploy preflight runs only for main deploy paths.
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.deploy == true || github.event.inputs.deploy == 'true'))
     steps:
+      - name: Validate deploy host is public-reachable
+        shell: bash
+        env:
+          HOST: ${{ secrets.HOST }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${HOST:-}" ]]; then
+            echo "::error::Missing required secret: HOST."
+            exit 1
+          fi
+
+          # 防呆：GitHub-hosted runner 无法直连内网/回环地址；如果误把 192.168/10/172.16-31 填进 secrets.HOST，
+          # 会导致每次 deploy 白跑一遍 CI 后才失败。
+          if [[ "$HOST" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            IFS='.' read -r o1 o2 o3 o4 <<<"$HOST"
+
+            for o in "$o1" "$o2" "$o3" "$o4"; do
+              if ! [[ "$o" =~ ^[0-9]+$ ]] || (( o < 0 || o > 255 )); then
+                exit 0
+              fi
+            done
+
+            if (( o1 == 10 )) || (( o1 == 127 )) || (( o1 == 0 )) || (( o1 == 169 && o2 == 254 )) || (( o1 == 192 && o2 == 168 )) || (( o1 == 172 && o2 >= 16 && o2 <= 31 )); then
+              echo "::error::secrets.HOST 看起来是内网/回环地址；GitHub-hosted runner 无法直连。请改为公网域名/IP，或改用 self-hosted runner / VPN。"
+              exit 1
+            fi
+          fi
+
       - name: Validate deploy host reachability (nc)
+        shell: bash
         env:
           HOST: ${{ secrets.HOST }}
           PORT: ${{ secrets.PORT }}
         run: |
-          # Do not print host/port; keep stdout/stderr fully suppressed.
-          nc -z -w 5 "$HOST" "$PORT" >/dev/null 2>&1
+          set -euo pipefail
+
+          if [[ -z "${HOST:-}" || -z "${PORT:-}" ]]; then
+            echo "::error::Missing required secrets: HOST/PORT."
+            exit 1
+          fi
+
+          # Do not print host/port. Retry to avoid transient network flakiness.
+          attempts=3
+          for ((i=1; i<=attempts; i++)); do
+            if nc -z -w 5 "$HOST" "$PORT" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::Deploy preflight failed: cannot reach SSH port from runner. Check firewall/security group, port forwarding, and DNS."
+          exit 1
 
   backend-ci:
     runs-on: ubuntu-latest
@@ -144,10 +190,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate deploy host is public-reachable
+        shell: bash
+        env:
+          HOST: ${{ secrets.HOST }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${HOST:-}" ]]; then
+            echo "::error::Missing required secret: HOST."
+            exit 1
+          fi
+
+          if [[ "$HOST" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            IFS='.' read -r o1 o2 o3 o4 <<<"$HOST"
+
+            for o in "$o1" "$o2" "$o3" "$o4"; do
+              if ! [[ "$o" =~ ^[0-9]+$ ]] || (( o < 0 || o > 255 )); then
+                exit 0
+              fi
+            done
+
+            if (( o1 == 10 )) || (( o1 == 127 )) || (( o1 == 0 )) || (( o1 == 169 && o2 == 254 )) || (( o1 == 192 && o2 == 168 )) || (( o1 == 172 && o2 >= 16 && o2 <= 31 )); then
+              echo "::error::secrets.HOST 看起来是内网/回环地址；GitHub-hosted runner 无法直连。请改为公网域名/IP，或改用 self-hosted runner / VPN。"
+              exit 1
+            fi
+          fi
+
       - name: Setup SSH (key + known_hosts)
         shell: bash
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.CI }}
+          SSH_PRIVATE_KEY: ${{ secrets.CI || secrets.SSH_PRIVATE_KEY }}
           KNOWN_HOSTS: ${{ secrets.KNOWN_HOSTS }}
         run: |
           set -euo pipefail
@@ -158,7 +231,7 @@ jobs:
           PORT='${{ secrets.PORT }}'
 
           if [[ -z "${SSH_PRIVATE_KEY}" ]]; then
-            echo "Missing required secret: CI (SSH private key)."
+            echo "Missing required secret: CI (or SSH_PRIVATE_KEY) (SSH private key)."
             exit 1
           fi
 
@@ -299,6 +372,10 @@ jobs:
             exit 1
           fi
 
+          # Faster and more reliable builds.
+          export DOCKER_BUILDKIT=1
+          export COMPOSE_DOCKER_CLI_BUILD=1
+
           if [[ -z "${REPO_DIR:-}" || -z "${TARGET_SHA:-}" ]]; then
             echo "Internal error: REPO_DIR/TARGET_SHA not set."
             exit 1
@@ -389,16 +466,21 @@ jobs:
             local name="$2"
             local attempts=30
             local sleep_seconds=2
+            local last_http_code="000"
 
             for ((i=1; i<=attempts; i++)); do
-              if curl -fsS "$url" >/dev/null 2>&1; then
-                echo "$name is healthy."
+              # Keep the loop quiet; on failure we emit a one-shot diagnostic below.
+              last_http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 "$url" 2>/dev/null || echo '000')"
+              if [[ "$last_http_code" =~ ^[23][0-9][0-9]$ ]]; then
+                echo "$name is healthy (http_code=$last_http_code)."
                 return 0
               fi
               sleep "$sleep_seconds"
             done
 
-            echo "$name failed health check after ${attempts} attempts."
+            echo "$name failed health check after ${attempts} attempts (last_http_code=$last_http_code)."
+            echo "Health probe detail (one shot): $url"
+            curl -sS -o /dev/null -w "http_code=%{http_code} time_total=%{time_total}\n" --max-time 5 "$url" || true
             return 1
            }
 
@@ -430,6 +512,8 @@ jobs:
              fi
            fi
 
+           echo "Diagnostics (post-rollback attempt): docker compose images"
+           docker compose images || true
            echo "Diagnostics (post-rollback attempt): docker compose ps"
            docker compose ps || true
            echo "Diagnostics (post-rollback attempt): docker compose logs --tail 200 wayfarer-backend wayfarer-web"
@@ -516,14 +600,14 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           STATUS_RAW: ${{ job.status }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
-          python - <<'PY' | curl -fsS -X POST \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${REPO}/issues/1/comments" \
-            -d @-
+          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "::warning::GITHUB_TOKEN is missing; skip deploy status report."
+            exit 0
+          fi
+
+          payload="$(python - <<'PY'
           import json
           import os
 
@@ -537,3 +621,17 @@ jobs:
           )
           print(json.dumps({"body": body}))
           PY
+          )"
+
+          http_code="$(
+            printf '%s' "$payload" | curl -sS -o /dev/null -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/issues/1/comments" \
+              -d @- || echo '000'
+          )"
+
+          if [[ "$http_code" != "201" && "$http_code" != "200" ]]; then
+            echo "::warning::Failed to post deploy status comment to issue #1 (http_code=$http_code)."
+          fi
