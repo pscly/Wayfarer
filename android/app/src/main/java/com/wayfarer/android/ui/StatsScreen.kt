@@ -1,6 +1,7 @@
 package com.wayfarer.android.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,16 +33,25 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import com.wayfarer.android.api.ApiException
+import com.wayfarer.android.api.AuthStore
+import com.wayfarer.android.api.WayfarerApiClient
+import com.wayfarer.android.api.toUserMessageZh
 import com.wayfarer.android.db.LifeEventEntity
 import com.wayfarer.android.db.TrackPointEntity
 import com.wayfarer.android.tracking.LifeEventRepository
+import com.wayfarer.android.tracking.StatsStepsRepository
 import com.wayfarer.android.tracking.TrackPointRepository
 import java.time.Instant
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -62,6 +72,7 @@ fun StatsScreen() {
     val context = LocalContext.current
     val repository = remember { TrackPointRepository(context) }
     val lifeEventRepository = remember { LifeEventRepository(context) }
+    val stepsRepository = remember { StatsStepsRepository(context) }
     val zone = remember { ZoneId.systemDefault() }
 
     var windowDays by rememberSaveable { mutableStateOf(7) }
@@ -71,23 +82,102 @@ fun StatsScreen() {
     var stats by remember { mutableStateOf<List<DayStat>>(emptyList()) }
     var pointsAsc by remember { mutableStateOf<List<TrackPointEntity>>(emptyList()) }
 
+    var remoteStepsLoading by remember { mutableStateOf(false) }
+    var remoteStepsError by remember { mutableStateOf<String?>(null) }
+
     var marksLoading by remember { mutableStateOf(false) }
     var marksError by remember { mutableStateOf<String?>(null) }
     var marks by remember { mutableStateOf<List<LifeEventEntity>>(emptyList()) }
 
+    var remoteHourlyLoading by remember { mutableStateOf(false) }
+    var remoteHourlyError by remember { mutableStateOf<String?>(null) }
+    var remoteHourlyBuckets by remember { mutableStateOf<LongArray?>(null) }
+
+    var dailyLoadSeq by remember { mutableStateOf(0) }
+    var hourlyLoadSeq by remember { mutableStateOf(0) }
+
+    fun hasAuth(): Boolean {
+        val access = AuthStore.readAccessToken(context)
+        val refresh = AuthStore.readRefreshToken(context)
+        return !access.isNullOrBlank() || !refresh.isNullOrBlank()
+    }
+
+    fun toUiError(t: Throwable): String {
+        return when (t) {
+            is ApiException -> t.toUserMessageZh()
+            else -> t.message ?: t.toString()
+        }
+    }
+
+    fun currentTzOffsetMinutes(): Int? {
+        return runCatching {
+            val seconds = zone.rules.getOffset(Instant.now()).totalSeconds
+            seconds / 60
+        }.getOrNull()
+    }
+
     fun refresh() {
+        val mySeq = dailyLoadSeq + 1
+        dailyLoadSeq = mySeq
+
         loading = true
         error = null
+        remoteStepsLoading = false
+        remoteStepsError = null
+
         // Pull a generous amount; compute window in-memory.
         repository.latestPointsAsync(
             limit = 20_000,
             onResult = { pointsDesc ->
+                if (dailyLoadSeq != mySeq) return@latestPointsAsync
+
                 val asc = pointsDesc.asReversed()
                 pointsAsc = asc
-                stats = computeDailyStats(asc, windowDays)
+                val localStats = computeDailyStats(asc, windowDays, zone)
+                stats = localStats
                 loading = false
+
+                if (!hasAuth()) return@latestPointsAsync
+
+                val today = LocalDate.now(zone)
+                val startDay = today.minusDays((windowDays - 1).toLong())
+                val startUtc = startDay.atStartOfDay(zone).toInstant().toString()
+                val endUtc = Instant.now().toString()
+                val tz = zone.id
+
+                remoteStepsLoading = true
+                remoteStepsError = null
+                stepsRepository.dailyAsync(
+                    startUtc = startUtc,
+                    endUtc = endUtc,
+                    tz = tz,
+                    tzOffsetMinutes = currentTzOffsetMinutes(),
+                    onResult = { items ->
+                        if (dailyLoadSeq != mySeq) return@dailyAsync
+
+                        val stepsByDay = buildMap<LocalDate, Long> {
+                            for (it in items) {
+                                val day = runCatching { LocalDate.parse(it.day) }.getOrNull() ?: continue
+                                put(day, it.steps)
+                            }
+                        }
+
+                        // 仅覆盖步数，其他指标（距离/点数）仍使用本地数据。
+                        stats = localStats.map { s ->
+                            val remote = stepsByDay[s.day]
+                            if (remote == null) s else s.copy(steps = remote)
+                        }
+                        remoteStepsLoading = false
+                    },
+                    onError = { t ->
+                        if (dailyLoadSeq != mySeq) return@dailyAsync
+                        remoteStepsError = toUiError(t)
+                        remoteStepsLoading = false
+                    },
+                )
             },
             onError = {
+                if (dailyLoadSeq != mySeq) return@latestPointsAsync
                 error = it.message ?: it.toString()
                 loading = false
             },
@@ -100,11 +190,18 @@ fun StatsScreen() {
 
     LaunchedEffect(selectedDayIso) {
         val dayIso = selectedDayIso ?: run {
+            hourlyLoadSeq = hourlyLoadSeq + 1
             marks = emptyList()
             marksError = null
             marksLoading = false
+            remoteHourlyLoading = false
+            remoteHourlyError = null
+            remoteHourlyBuckets = null
             return@LaunchedEffect
         }
+
+        val mySeq = hourlyLoadSeq + 1
+        hourlyLoadSeq = mySeq
 
         val day = runCatching { LocalDate.parse(dayIso) }.getOrNull() ?: return@LaunchedEffect
         val start = day.atStartOfDay(zone).toInstant()
@@ -118,12 +215,41 @@ fun StatsScreen() {
             endUtc = endInclusive.toString(),
             limit = 2000,
             onResult = {
+                if (hourlyLoadSeq != mySeq) return@rangeOverlappingAsync
                 marks = it
                 marksLoading = false
             },
             onError = {
+                if (hourlyLoadSeq != mySeq) return@rangeOverlappingAsync
                 marksError = it.message ?: it.toString()
                 marksLoading = false
+            },
+        )
+
+        if (!hasAuth()) {
+            remoteHourlyLoading = false
+            remoteHourlyError = null
+            remoteHourlyBuckets = null
+            return@LaunchedEffect
+        }
+
+        remoteHourlyLoading = true
+        remoteHourlyError = null
+        remoteHourlyBuckets = null
+        stepsRepository.hourlyAsync(
+            startUtc = start.toString(),
+            endUtc = endInclusive.toString(),
+            tz = zone.id,
+            tzOffsetMinutes = currentTzOffsetMinutes(),
+            onResult = { items ->
+                if (hourlyLoadSeq != mySeq) return@hourlyAsync
+                remoteHourlyBuckets = computeHourlyStepsFromRemote(items, zone)
+                remoteHourlyLoading = false
+            },
+            onError = { t ->
+                if (hourlyLoadSeq != mySeq) return@hourlyAsync
+                remoteHourlyError = toUiError(t)
+                remoteHourlyLoading = false
             },
         )
     }
@@ -146,7 +272,9 @@ fun StatsScreen() {
                     instant.atZone(zone).toLocalDate() == day
                 }
             }
-        val stepsByHour = computeHourlySteps(dayPoints, zone)
+        val localStepsByHour = computeHourlySteps(dayPoints, zone)
+        val stepsByHour = remoteHourlyBuckets ?: localStepsByHour
+        val distanceByHourM = computeHourlyDistanceMeters(dayPoints, zone)
         val daySteps = stepsByHour.sum()
         val dayDistance = computeDistanceMeters(dayPoints)
 
@@ -170,6 +298,19 @@ fun StatsScreen() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (remoteHourlyLoading) {
+                            Text(
+                                text = "云端步数加载中…（按本地时区 ${zone.id} 分桶）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else if (!remoteHourlyError.isNullOrBlank()) {
+                            Text(
+                                text = remoteHourlyError ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                 }
             }
@@ -185,7 +326,26 @@ fun StatsScreen() {
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Spacer(modifier = Modifier.height(10.dp))
-                        HourlyStepsBarChart(stepsByHour)
+                        HourlyStepsBarChart(
+                            stepsByHour = stepsByHour,
+                            distanceByHourM = distanceByHourM,
+                        )
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "按小时距离",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HourlyDistanceBarChart(distanceByHourM = distanceByHourM)
                     }
                 }
             }
@@ -294,6 +454,24 @@ fun StatsScreen() {
                             text = error ?: "",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
+                        )
+                    } else if (hasAuth() && remoteStepsLoading) {
+                        Text(
+                            text = "云端步数加载中…（按本地时区 ${zone.id} 分桶）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else if (hasAuth() && !remoteStepsError.isNullOrBlank()) {
+                        Text(
+                            text = "云端步数加载失败：${remoteStepsError ?: ""}（已回退到本地统计）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    } else if (hasAuth()) {
+                        Text(
+                            text = "步数来自云端聚合（本地日期口径）；距离/点数来自本机记录",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -415,22 +593,70 @@ private fun DistanceBarChart(stats: List<DayStat>) {
     val max = days.maxOfOrNull { it.distanceM }?.coerceAtLeast(1.0) ?: 1.0
     val accent = Color(0xFF38BDF8)
 
+    var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var chartWidthPx by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(days.size) {
+        if (selectedIndex != null && selectedIndex !in days.indices) selectedIndex = null
+    }
+
+    val selected = selectedIndex?.let { idx -> days.getOrNull(idx) }
+    Text(
+        text = selected?.let { "${it.day.format(DAY_LABEL)}：${formatDistance(it.distanceM)}" } ?: "点击柱子查看具体距离",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+
     Box(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { chartWidthPx = it.width.toFloat() }
+                    .pointerInput(days.size, chartWidthPx) {
+                        detectTapGestures { offset ->
+                            val barCount = days.size.coerceAtLeast(1)
+                            val gap = 10f
+                            val totalGap = gap * (barCount - 1)
+                            val w = chartWidthPx
+                            if (w <= 0f) return@detectTapGestures
+
+                            val barWidth = ((w - totalGap) / barCount).coerceAtLeast(6f)
+                            val stride = barWidth + gap
+                            val idx = (offset.x / stride).toInt()
+                            if (idx !in 0 until barCount) {
+                                selectedIndex = null
+                                return@detectTapGestures
+                            }
+                            val xInStride = offset.x - idx * stride
+                            selectedIndex = if (xInStride in 0f..barWidth) idx else null
+                        }
+                    },
+        ) {
             val barCount = days.size.coerceAtLeast(1)
             val gap = 10f
             val totalGap = gap * (barCount - 1)
             val barWidth = ((size.width - totalGap) / barCount).coerceAtLeast(6f)
 
             var x = 0f
-            for (d in days) {
+            for ((i, d) in days.withIndex()) {
                 val h = (d.distanceM / max).toFloat() * size.height
                 drawRoundRect(
-                    color = accent.copy(alpha = 0.9f),
+                    color = accent.copy(alpha = if (selectedIndex == i) 0.95f else 0.55f),
                     topLeft = Offset(x, size.height - h),
                     size = Size(barWidth, h),
                     cornerRadius = CornerRadius(10f, 10f),
                 )
+                if (selectedIndex == i) {
+                    drawRoundRect(
+                        color = accent,
+                        topLeft = Offset(x, size.height - h),
+                        size = Size(barWidth, h),
+                        cornerRadius = CornerRadius(10f, 10f),
+                        style = Stroke(width = 2f),
+                    )
+                }
                 x += barWidth + gap
             }
         }
@@ -450,22 +676,70 @@ private fun StepsBarChart(stats: List<DayStat>) {
     val max = days.maxOfOrNull { it.steps }?.coerceAtLeast(1L) ?: 1L
     val accent = Color(0xFF34D399) // green-ish
 
+    var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var chartWidthPx by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(days.size) {
+        if (selectedIndex != null && selectedIndex !in days.indices) selectedIndex = null
+    }
+
+    val selected = selectedIndex?.let { idx -> days.getOrNull(idx) }
+    Text(
+        text = selected?.let { "${it.day.format(DAY_LABEL)}：${it.steps} 步" } ?: "点击柱子查看具体步数",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+
     Box(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { chartWidthPx = it.width.toFloat() }
+                    .pointerInput(days.size, chartWidthPx) {
+                        detectTapGestures { offset ->
+                            val barCount = days.size.coerceAtLeast(1)
+                            val gap = 10f
+                            val totalGap = gap * (barCount - 1)
+                            val w = chartWidthPx
+                            if (w <= 0f) return@detectTapGestures
+
+                            val barWidth = ((w - totalGap) / barCount).coerceAtLeast(6f)
+                            val stride = barWidth + gap
+                            val idx = (offset.x / stride).toInt()
+                            if (idx !in 0 until barCount) {
+                                selectedIndex = null
+                                return@detectTapGestures
+                            }
+                            val xInStride = offset.x - idx * stride
+                            selectedIndex = if (xInStride in 0f..barWidth) idx else null
+                        }
+                    },
+        ) {
             val barCount = days.size.coerceAtLeast(1)
             val gap = 10f
             val totalGap = gap * (barCount - 1)
             val barWidth = ((size.width - totalGap) / barCount).coerceAtLeast(6f)
 
             var x = 0f
-            for (d in days) {
+            for ((i, d) in days.withIndex()) {
                 val h = (d.steps.toDouble() / max.toDouble()).toFloat() * size.height
                 drawRoundRect(
-                    color = accent.copy(alpha = 0.9f),
+                    color = accent.copy(alpha = if (selectedIndex == i) 0.95f else 0.55f),
                     topLeft = Offset(x, size.height - h),
                     size = Size(barWidth, h),
                     cornerRadius = CornerRadius(10f, 10f),
                 )
+                if (selectedIndex == i) {
+                    drawRoundRect(
+                        color = accent,
+                        topLeft = Offset(x, size.height - h),
+                        size = Size(barWidth, h),
+                        cornerRadius = CornerRadius(10f, 10f),
+                        style = Stroke(width = 2f),
+                    )
+                }
                 x += barWidth + gap
             }
         }
@@ -480,12 +754,54 @@ private fun StepsBarChart(stats: List<DayStat>) {
 }
 
 @Composable
-private fun HourlyStepsBarChart(stepsByHour: LongArray) {
+private fun HourlyStepsBarChart(
+    stepsByHour: LongArray,
+    distanceByHourM: DoubleArray,
+) {
     val max = stepsByHour.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     val accent = Color(0xFF34D399)
 
+    var selectedHour by rememberSaveable { mutableStateOf<Int?>(null) }
+    var chartWidthPx by remember { mutableStateOf(0f) }
+
+    val selectedSteps = selectedHour?.let { h -> stepsByHour.getOrNull(h) ?: 0L }
+    val selectedDistance = selectedHour?.let { h -> distanceByHourM.getOrNull(h) ?: 0.0 }
+    Text(
+        text =
+            selectedHour?.let { h ->
+                "${String.format("%02d:00", h)}：${selectedSteps ?: 0L} 步  ·  ${formatDistance(selectedDistance ?: 0.0)}"
+            } ?: "点击柱子查看具体步数/距离",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+
     Box(modifier = Modifier.fillMaxWidth().height(160.dp)) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { chartWidthPx = it.width.toFloat() }
+                    .pointerInput(chartWidthPx) {
+                        detectTapGestures { offset ->
+                            val barCount = 24
+                            val gap = 6f
+                            val totalGap = gap * (barCount - 1)
+                            val w = chartWidthPx
+                            if (w <= 0f) return@detectTapGestures
+
+                            val barWidth = ((w - totalGap) / barCount).coerceAtLeast(4f)
+                            val stride = barWidth + gap
+                            val idx = (offset.x / stride).toInt()
+                            if (idx !in 0 until barCount) {
+                                selectedHour = null
+                                return@detectTapGestures
+                            }
+                            val xInStride = offset.x - idx * stride
+                            selectedHour = if (xInStride in 0f..barWidth) idx else null
+                        }
+                    },
+        ) {
             val barCount = 24
             val gap = 6f
             val totalGap = gap * (barCount - 1)
@@ -496,11 +812,100 @@ private fun HourlyStepsBarChart(stepsByHour: LongArray) {
                 val steps = stepsByHour.getOrNull(hour) ?: 0L
                 val h = (steps.toDouble() / max.toDouble()).toFloat() * size.height
                 drawRoundRect(
-                    color = accent.copy(alpha = 0.9f),
+                    color = accent.copy(alpha = if (selectedHour == hour) 0.95f else 0.55f),
                     topLeft = Offset(x, size.height - h),
                     size = Size(barWidth, h),
                     cornerRadius = CornerRadius(8f, 8f),
                 )
+                if (selectedHour == hour) {
+                    drawRoundRect(
+                        color = accent,
+                        topLeft = Offset(x, size.height - h),
+                        size = Size(barWidth, h),
+                        cornerRadius = CornerRadius(8f, 8f),
+                        style = Stroke(width = 2f),
+                    )
+                }
+                x += barWidth + gap
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+        text = "0  6  12  18  23",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun HourlyDistanceBarChart(distanceByHourM: DoubleArray) {
+    val max = distanceByHourM.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+    val accent = Color(0xFF38BDF8)
+
+    var selectedHour by rememberSaveable { mutableStateOf<Int?>(null) }
+    var chartWidthPx by remember { mutableStateOf(0f) }
+
+    val selectedDistance = selectedHour?.let { h -> distanceByHourM.getOrNull(h) ?: 0.0 }
+    Text(
+        text = selectedHour?.let { h -> "${String.format("%02d:00", h)}：${formatDistance(selectedDistance ?: 0.0)}" }
+            ?: "点击柱子查看具体距离",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+
+    Box(modifier = Modifier.fillMaxWidth().height(160.dp)) {
+        Canvas(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { chartWidthPx = it.width.toFloat() }
+                    .pointerInput(chartWidthPx) {
+                        detectTapGestures { offset ->
+                            val barCount = 24
+                            val gap = 6f
+                            val totalGap = gap * (barCount - 1)
+                            val w = chartWidthPx
+                            if (w <= 0f) return@detectTapGestures
+
+                            val barWidth = ((w - totalGap) / barCount).coerceAtLeast(4f)
+                            val stride = barWidth + gap
+                            val idx = (offset.x / stride).toInt()
+                            if (idx !in 0 until barCount) {
+                                selectedHour = null
+                                return@detectTapGestures
+                            }
+                            val xInStride = offset.x - idx * stride
+                            selectedHour = if (xInStride in 0f..barWidth) idx else null
+                        }
+                    },
+        ) {
+            val barCount = 24
+            val gap = 6f
+            val totalGap = gap * (barCount - 1)
+            val barWidth = ((size.width - totalGap) / barCount).coerceAtLeast(4f)
+
+            var x = 0f
+            for (hour in 0 until barCount) {
+                val meters = distanceByHourM.getOrNull(hour) ?: 0.0
+                val h = (meters / max).toFloat() * size.height
+                drawRoundRect(
+                    color = accent.copy(alpha = if (selectedHour == hour) 0.95f else 0.55f),
+                    topLeft = Offset(x, size.height - h),
+                    size = Size(barWidth, h),
+                    cornerRadius = CornerRadius(8f, 8f),
+                )
+                if (selectedHour == hour) {
+                    drawRoundRect(
+                        color = accent,
+                        topLeft = Offset(x, size.height - h),
+                        size = Size(barWidth, h),
+                        cornerRadius = CornerRadius(8f, 8f),
+                        style = Stroke(width = 2f),
+                    )
+                }
                 x += barWidth + gap
             }
         }
@@ -517,9 +922,7 @@ private fun HourlyStepsBarChart(stepsByHour: LongArray) {
 private val DAY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("MM/dd")
 private val LOCAL_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
-private fun computeDailyStats(pointsAsc: List<TrackPointEntity>, windowDays: Int): List<DayStat> {
-    if (pointsAsc.isEmpty()) return emptyList()
-    val zone = ZoneId.systemDefault()
+private fun computeDailyStats(pointsAsc: List<TrackPointEntity>, windowDays: Int, zone: ZoneId): List<DayStat> {
     val today = LocalDate.now(zone)
     val startDay = today.minusDays((windowDays - 1).toLong())
 
@@ -551,6 +954,43 @@ private fun computeHourlySteps(points: List<TrackPointEntity>, zone: ZoneId): Lo
         val hour = instant.atZone(zone).hour
         val delta = p.stepDelta ?: 0L
         if (hour in 0..23) out[hour] = out[hour] + delta
+    }
+    return out
+}
+
+private fun computeHourlyStepsFromRemote(items: List<WayfarerApiClient.StepsHourlyItem>, zone: ZoneId): LongArray {
+    val out = LongArray(24)
+    for (it in items) {
+        val t = runCatching { OffsetDateTime.parse(it.hourStart) }.getOrNull() ?: continue
+        val hour = t.atZoneSameInstant(zone).hour
+        if (hour in 0..23) out[hour] = out[hour] + it.steps
+    }
+    return out
+}
+
+private fun computeHourlyDistanceMeters(points: List<TrackPointEntity>, zone: ZoneId): DoubleArray {
+    val out = DoubleArray(24)
+    if (points.size < 2) return out
+
+    var prev = points.first()
+    var prevInstant = runCatching { Instant.parse(prev.recordedAtUtc) }.getOrNull()
+    for (i in 1 until points.size) {
+        val cur = points[i]
+        val curInstant = runCatching { Instant.parse(cur.recordedAtUtc) }.getOrNull()
+        if (prevInstant != null && curInstant != null) {
+            // 将“上一个点 -> 当前点”的位移归到上一个点所在小时（足够直观且保证总和=全天距离）。
+            val hour = prevInstant.atZone(zone).hour
+            val dist =
+                haversineMeters(
+                    prev.latitudeWgs84,
+                    prev.longitudeWgs84,
+                    cur.latitudeWgs84,
+                    cur.longitudeWgs84,
+                )
+            if (hour in 0..23) out[hour] = out[hour] + dist
+        }
+        prev = cur
+        prevInstant = curInstant
     }
     return out
 }

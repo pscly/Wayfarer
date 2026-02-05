@@ -52,6 +52,16 @@ class WayfarerApiClient(
         val isDirty: Boolean,
     )
 
+    data class StepsDailyItem(
+        val day: String, // YYYY-MM-DD（按 tz 分桶）
+        val steps: Long,
+    )
+
+    data class StepsHourlyItem(
+        val hourStart: String, // ISO8601（按 tz 分桶，可能带 offset）
+        val steps: Long,
+    )
+
     private fun baseUrl(): String = ServerConfigStore.readBaseUrl(appContext)
 
     private fun url(path: String): String {
@@ -239,6 +249,60 @@ class WayfarerApiClient(
                     stepCount = if (!it.has("step_count") || it.isNull("step_count")) null else it.getLong("step_count"),
                     stepDelta = if (!it.has("step_delta") || it.isNull("step_delta")) null else it.getLong("step_delta"),
                     isDirty = it.optBoolean("is_dirty", false),
+                ),
+            )
+        }
+        return out
+    }
+
+    fun stepsDaily(
+        accessToken: String,
+        startUtc: String,
+        endUtc: String,
+        tz: String? = null,
+        tzOffsetMinutes: Int? = null,
+    ): List<StepsDailyItem> {
+        val qs = StringBuilder()
+        qs.append("start=${encode(startUtc)}&end=${encode(endUtc)}")
+        if (!tz.isNullOrBlank()) qs.append("&tz=${encode(tz)}")
+        if (tzOffsetMinutes != null) qs.append("&tz_offset_minutes=$tzOffsetMinutes")
+
+        val obj = requestJson("GET", "/v1/stats/steps/daily?$qs", accessToken = accessToken)
+        val items = obj.optJSONArray("items") ?: JSONArray()
+        val out = ArrayList<StepsDailyItem>(items.length())
+        for (i in 0 until items.length()) {
+            val it = items.optJSONObject(i) ?: continue
+            out.add(
+                StepsDailyItem(
+                    day = it.optString("day").trim(),
+                    steps = if (!it.has("steps") || it.isNull("steps")) 0L else it.optLong("steps", 0L),
+                ),
+            )
+        }
+        return out
+    }
+
+    fun stepsHourly(
+        accessToken: String,
+        startUtc: String,
+        endUtc: String,
+        tz: String? = null,
+        tzOffsetMinutes: Int? = null,
+    ): List<StepsHourlyItem> {
+        val qs = StringBuilder()
+        qs.append("start=${encode(startUtc)}&end=${encode(endUtc)}")
+        if (!tz.isNullOrBlank()) qs.append("&tz=${encode(tz)}")
+        if (tzOffsetMinutes != null) qs.append("&tz_offset_minutes=$tzOffsetMinutes")
+
+        val obj = requestJson("GET", "/v1/stats/steps/hourly?$qs", accessToken = accessToken)
+        val items = obj.optJSONArray("items") ?: JSONArray()
+        val out = ArrayList<StepsHourlyItem>(items.length())
+        for (i in 0 until items.length()) {
+            val it = items.optJSONObject(i) ?: continue
+            out.add(
+                StepsHourlyItem(
+                    hourStart = it.optString("hour_start").trim(),
+                    steps = if (!it.has("steps") || it.isNull("steps")) 0L else it.optLong("steps", 0L),
                 ),
             )
         }
