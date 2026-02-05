@@ -258,7 +258,32 @@ jobs:
             exit 1
           fi
 
-          if ! ssh-keygen -F "[$HOST]:$PORT" -f ~/.ssh/known_hosts >/dev/null 2>&1 && ! ssh-keygen -F "$HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
+          has_target=0
+          if ssh-keygen -F "[$HOST]:$PORT" -f ~/.ssh/known_hosts >/dev/null 2>&1 || ssh-keygen -F "$HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
+            has_target=1
+          else
+            # Auto-alias: if known_hosts contains exactly one unique host key, assume it's the deploy key
+            # and add an alias line for the current secrets.HOST (useful when switching between domain/IP).
+            unique_keys="$(
+              awk '
+                NF >= 3 && $1 !~ /^#/ && $1 !~ /^@/ {
+                  kt=$2; k=$3;
+                  if (kt != "" && k != "") print kt, k
+                }
+              ' ~/.ssh/known_hosts | sort -u
+            )"
+            key_count="$(printf '%s\n' "$unique_keys" | sed '/^$/d' | wc -l | tr -d ' ')"
+            if [[ "$key_count" == "1" ]]; then
+              host_key="$(printf '%s\n' "$unique_keys" | sed '/^$/d' | head -n 1)"
+              printf '%s %s\n' "$HOST" "$host_key" >> ~/.ssh/known_hosts
+              if [[ "$PORT" != "22" ]]; then
+                printf '[%s]:%s %s\n' "$HOST" "$PORT" "$host_key" >> ~/.ssh/known_hosts
+              fi
+              has_target=1
+            fi
+          fi
+
+          if [[ "$has_target" != "1" ]]; then
             echo "::error::Pinned known_hosts missing entry for deploy target (secrets.HOST / secrets.PORT). Update secrets.KNOWN_HOSTS or .github/known_hosts."
             exit 1
           fi
