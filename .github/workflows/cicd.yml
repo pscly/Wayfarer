@@ -811,9 +811,10 @@ jobs:
 
           for ln in data:
               if not target_ip and 'Connecting to' in ln:
-                  m = re.search(r'Connecting to .*? \[([^\]]+)\] port', ln)
-                  if m:
-                      target_ip = m.group(1)
+                  lb = ln.find('[')
+                  rb = ln.find(']', lb + 1) if lb != -1 else -1
+                  if lb != -1 and rb != -1:
+                      target_ip = ln[lb + 1 : rb].strip()
                       if ':' in target_ip:
                           target_ip_version = '6'
                           target_ip_class = classify_ipv6(target_ip)
