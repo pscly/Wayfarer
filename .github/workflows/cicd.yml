@@ -94,7 +94,8 @@ jobs:
           # Do not print host/port. Retry to avoid transient network flakiness.
           attempts=3
           for ((i=1; i<=attempts; i++)); do
-            if nc -z -w 5 "$HOST" "$PORT" >/dev/null 2>&1; then
+            # Force IPv4 to avoid accidental IPv6 routing/DNS surprises.
+            if nc -4 -z -w 5 "$HOST" "$PORT" >/dev/null 2>&1; then
               exit 0
             fi
             sleep 2
@@ -425,7 +426,7 @@ jobs:
 
           SSH_ERR_FILE="$(mktemp)"
 
-          if ! ssh \
+          if ! ssh -4 \
             -i ~/.ssh/id_ci \
             -p "$PORT" \
             -o BatchMode=yes \
@@ -697,7 +698,7 @@ jobs:
               # If this looks like an auth failure, run a second SSH attempt with -vv to show which key is offered.
               if grep -qiE 'permission denied|authentication failed|too many authentication failures|no supported authentication methods' "$SSH_ERR_FILE"; then
                 SSH_DEBUG_FILE="$(mktemp)"
-                ssh -vv \
+                ssh -4 -vv \
                   -i ~/.ssh/id_ci \
                   -p "$PORT" \
                   -o BatchMode=yes \
@@ -766,11 +767,59 @@ jobs:
 
           # IPv4 redaction (best-effort)
           text = re.sub(r'\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b', '<IP>', text)
+          # IPv6 redaction (best-effort)
+          text = re.sub(r'\\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\\b', '<IPV6>', text)
 
           offered_fps = []
           server_hostkey_fps = []
           saw_server_accepts = False
+          target_ip = ''
+          target_ip_version = 'unknown'
+          target_ip_class = 'unknown'
+
+          def classify_ipv4(ip: str) -> str:
+              try:
+                  parts = [int(x) for x in ip.split('.')]
+                  if len(parts) != 4 or any(p < 0 or p > 255 for p in parts):
+                      return 'unknown'
+                  o1, o2, o3, o4 = parts
+                  if o1 == 10:
+                      return 'private'
+                  if o1 == 127:
+                      return 'loopback'
+                  if o1 == 0:
+                      return 'reserved'
+                  if o1 == 169 and o2 == 254:
+                      return 'link-local'
+                  if o1 == 192 and o2 == 168:
+                      return 'private'
+                  if o1 == 172 and 16 <= o2 <= 31:
+                      return 'private'
+                  return 'public'
+              except Exception:
+                  return 'unknown'
+
+          def classify_ipv6(ip: str) -> str:
+              ip_l = ip.lower()
+              if ip_l == '::1':
+                  return 'loopback'
+              if ip_l.startswith('fe80:'):
+                  return 'link-local'
+              if ip_l.startswith('fc') or ip_l.startswith('fd'):
+                  return 'unique-local'
+              return 'public-or-global'
+
           for ln in data:
+              if not target_ip and 'Connecting to' in ln:
+                  m = re.search(r'Connecting to .*? \\[([^\\]]+)\\] port', ln)
+                  if m:
+                      target_ip = m.group(1)
+                      if ':' in target_ip:
+                          target_ip_version = '6'
+                          target_ip_class = classify_ipv6(target_ip)
+                      else:
+                          target_ip_version = '4'
+                          target_ip_class = classify_ipv4(target_ip)
               if 'Offering public key' in ln:
                   m = re.search(r'SHA256:[A-Za-z0-9+/=]+' , ln)
                   if m:
@@ -787,6 +836,9 @@ jobs:
           if server_hostkey_fps:
               print('server_host_key_fingerprint=' + ','.join(sorted(set(server_hostkey_fps))))
           print('server_accepts_key=' + ('yes' if saw_server_accepts else 'no'))
+          if target_ip:
+              print('ssh_target_ip_version=' + target_ip_version)
+              print('ssh_target_ip_class=' + target_ip_class)
 
           print('SSH debug (-vv) sanitized excerpt:')
           print(text)
