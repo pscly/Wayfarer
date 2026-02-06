@@ -86,13 +86,14 @@ jobs:
           if [[ "$VARIANT" == "release" ]]; then
             missing=0
             for k in ANDROID_KEYSTORE_BASE64 WAYFARER_ANDROID_KEYSTORE_PASSWORD WAYFARER_ANDROID_KEY_ALIAS WAYFARER_ANDROID_KEY_PASSWORD; do
-              if [[ -z "${!k:-}" ]]; then
-                echo "::error::Missing required secret/env: $k"
+              v="${!k:-}"
+              if [[ -z "${v//[[:space:]]/}" ]]; then
+                echo "::error::Missing required secret/env (blank): $k"
                 missing=1
               fi
             done
 
-            if [[ "$ALLOW_MISSING_AMAP_KEY" != "true" && -z "${WAYFARER_AMAP_API_KEY:-}" ]]; then
+            if [[ "$ALLOW_MISSING_AMAP_KEY" != "true" && -z "${WAYFARER_AMAP_API_KEY//[[:space:]]/}" ]]; then
               echo "::error::Missing required secret: WAYFARER_AMAP_API_KEY（正式版建议必须提供；如确实要跳过请在 workflow_dispatch 勾选 allow_missing_amap_key）"
               missing=1
             fi
@@ -103,6 +104,17 @@ jobs:
 
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > keystore.jks
             chmod 600 keystore.jks
+
+            if [[ ! -s keystore.jks ]]; then
+              echo "::error::Decoded keystore.jks is empty. 请确认 ANDROID_KEYSTORE_BASE64 是 keystore 文件的单行 base64（Linux 示例：base64 -w0 keystore.jks）。"
+              exit 1
+            fi
+
+            if ! keytool -list -keystore keystore.jks -storepass "$WAYFARER_ANDROID_KEYSTORE_PASSWORD" -alias "$WAYFARER_ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+              echo "::error::Keystore 校验失败：请确认 store password/alias 正确，且 ANDROID_KEYSTORE_BASE64 对应同一个 keystore。"
+              echo "提示：alias 可以用本地 keytool 查看：keytool -list -keystore your.jks"
+              exit 1
+            fi
 
             export WAYFARER_ANDROID_KEYSTORE_PATH="keystore.jks"
           fi
