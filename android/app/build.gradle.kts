@@ -1,5 +1,7 @@
 import java.util.Properties
 import com.android.build.gradle.tasks.factory.AndroidUnitTest
+import org.gradle.api.execution.TaskExecutionGraph
+import org.gradle.kotlin.dsl.closureOf
 
 plugins {
     id("com.android.application")
@@ -14,19 +16,36 @@ val localProperties: Properties = Properties().also { props ->
     }
 }
 
-val missingSentinel = "MISSING_WAYFARER_AMAP_API_KEY"
-val amapKey: String = run {
-    val fromGradleProp = (project.findProperty("WAYFARER_AMAP_API_KEY") as String?)?.trim().orEmpty()
-    val fromEnv = System.getenv("WAYFARER_AMAP_API_KEY")?.trim().orEmpty()
-    val fromLocal = localProperties.getProperty("WAYFARER_AMAP_API_KEY")?.trim().orEmpty()
+fun resolveWayfarerProp(key: String): String {
+    val fromGradleProp = (project.findProperty(key) as String?)?.trim().orEmpty()
+    val fromEnv = System.getenv(key)?.trim().orEmpty()
+    val fromLocal = localProperties.getProperty(key)?.trim().orEmpty()
 
-    when {
+    return when {
         fromGradleProp.isNotBlank() -> fromGradleProp
         fromEnv.isNotBlank() -> fromEnv
         fromLocal.isNotBlank() -> fromLocal
-        else -> missingSentinel
+        else -> ""
     }
 }
+
+val missingSentinel = "MISSING_WAYFARER_AMAP_API_KEY"
+val amapKey: String = run {
+    resolveWayfarerProp("WAYFARER_AMAP_API_KEY").ifBlank { missingSentinel }
+}
+
+val releaseKeystorePath = resolveWayfarerProp("WAYFARER_ANDROID_KEYSTORE_PATH")
+val releaseKeystorePassword = resolveWayfarerProp("WAYFARER_ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = resolveWayfarerProp("WAYFARER_ANDROID_KEY_ALIAS")
+val releaseKeyPassword = resolveWayfarerProp("WAYFARER_ANDROID_KEY_PASSWORD")
+
+val releaseKeystoreFile = releaseKeystorePath.takeIf { it.isNotBlank() }?.let { rootProject.file(it) }
+
+val isReleaseSigningConfigured =
+    releaseKeystoreFile?.isFile == true &&
+        releaseKeystorePassword.isNotBlank() &&
+        releaseKeyAlias.isNotBlank() &&
+        releaseKeyPassword.isNotBlank()
 
 // Base URL injected into BuildConfig.WAYFARER_API_BASE_URL.
 // Override priority (highest -> lowest):
@@ -47,6 +66,17 @@ fun resolveWayfarerApiBaseUrl(defaultValue: String): String {
 android {
     namespace = "com.wayfarer.android"
     compileSdk = 34
+
+    signingConfigs {
+        if (isReleaseSigningConfigured) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.wayfarer.android"
@@ -77,6 +107,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+
+            if (isReleaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
 
             val url = resolveWayfarerApiBaseUrl("https://waf.pscly.cc")
             buildConfigField("String", "WAYFARER_API_BASE_URL", "\"$url\"")
@@ -152,6 +186,32 @@ dependencies {
 }
 
 val hasNonAsciiPath = rootProject.projectDir.absolutePath.any { it.code > 127 }
+
+gradle.taskGraph.whenReady(
+    closureOf<TaskExecutionGraph> {
+        val wantsReleaseApkOrAab = allTasks.any { task ->
+            val n = task.name.lowercase()
+            (n.startsWith("assemble") || n.startsWith("bundle")) && n.contains("release")
+        }
+
+        if (wantsReleaseApkOrAab && !isReleaseSigningConfigured) {
+            throw GradleException(
+                """
+                Release 签名未配置，无法生成“正式版”APK/AAB。
+
+                你可以通过以下任一方式提供签名配置（优先级：Gradle 参数 > 环境变量 > local.properties）：
+
+                - WAYFARER_ANDROID_KEYSTORE_PATH（相对 android/ 的路径或绝对路径，例如：keystore.jks）
+                - WAYFARER_ANDROID_KEYSTORE_PASSWORD
+                - WAYFARER_ANDROID_KEY_ALIAS
+                - WAYFARER_ANDROID_KEY_PASSWORD
+
+                本地建议写入 android/local.properties（已 gitignore），CI 建议用 GitHub Secrets 注入。
+                """.trimIndent(),
+            )
+        }
+    },
+)
 
 if (hasNonAsciiPath) {
     // AndroidUnitTest uses a forked JVM under the hood; on Windows + non-ASCII paths the

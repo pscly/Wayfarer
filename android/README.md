@@ -56,6 +56,63 @@ Key 的来源优先级（从高到低）：
 - Benchmark APK（交付推荐）：`gradlew.bat assembleBenchmark`
 - Debug APK（仅开发用）：`gradlew.bat assembleDebug`
 
+## 正式版（release）签名配置
+
+本工程的 `release` 构建会在“生成 APK/AAB”时强制要求配置签名，否则会直接失败并提示缺失项（避免误产出未签名/不可安装的 APK）。
+
+签名配置来源优先级（从高到低）：
+
+1) Gradle project property：`-P<KEY>=...`
+2) 环境变量：`<KEY>=...`
+3) `android/local.properties`（仅本地，已 gitignore）
+
+需要提供的 KEY：
+
+- `WAYFARER_ANDROID_KEYSTORE_PATH`（相对 `android/` 的路径或绝对路径，例如：`keystore.jks`）
+- `WAYFARER_ANDROID_KEYSTORE_PASSWORD`
+- `WAYFARER_ANDROID_KEY_ALIAS`
+- `WAYFARER_ANDROID_KEY_PASSWORD`
+
+示例（本地构建 release APK）：
+
+```bash
+cd android
+export WAYFARER_ANDROID_KEYSTORE_PATH="keystore.jks"
+export WAYFARER_ANDROID_KEYSTORE_PASSWORD="***"
+export WAYFARER_ANDROID_KEY_ALIAS="***"
+export WAYFARER_ANDROID_KEY_PASSWORD="***"
+./gradlew :app:assembleRelease
+```
+
+## GitHub Actions 一键打包 APK（正式版/Benchmark）
+
+仓库内提供了 `Android APK` Workflow：`.github/workflows/android-apk.yml`。
+
+你可以在 GitHub → Actions → `Android APK`：
+
+- 手动触发（workflow_dispatch）
+  - `variant=release`：构建**正式签名** APK（需要配置签名 secrets）
+  - `variant=benchmark`：构建**调试签名** APK（可直接安装，适合内部测试）
+- 打 tag 自动触发（push tags）
+  - 推送 `android-v*`（例如 `android-v0.2.0`）会自动构建 `release` APK，并发布 GitHub Release（把 APK 作为附件上传）
+
+需要在 GitHub Secrets 配置（release 必需）：
+
+- `ANDROID_KEYSTORE_BASE64`：JKS/keystore 文件的 base64（单行）
+- `WAYFARER_ANDROID_KEYSTORE_PASSWORD`
+- `WAYFARER_ANDROID_KEY_ALIAS`
+- `WAYFARER_ANDROID_KEY_PASSWORD`
+
+建议配置（正式版建议必须提供，否则地图会降级/不可用）：
+
+- `WAYFARER_AMAP_API_KEY`
+
+在 Linux 生成 base64（单行）示例：
+
+```bash
+base64 -w0 keystore.jks
+```
+
 ## Windows 非 ASCII 路径
 
 本仓库路径包含非 ASCII 字符。Android Gradle Plugin 在 Windows 上可能因此警告/失败。

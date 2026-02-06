@@ -1,0 +1,148 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "构建变体（release 为正式签名版本；benchmark 为调试签名可安装版本）"
+        type: choice
+        required: true
+        default: release
+        options:
+          - release
+          - benchmark
+      allow_missing_amap_key:
+        description: "允许缺失高德 AMap Key（不建议正式版；缺失时地图会降级/不可用）"
+        type: boolean
+        required: false
+        default: false
+  push:
+    tags:
+      - "android-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    outputs:
+      artifact_name: ${{ steps.build.outputs.artifact_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: Build APK
+        id: build
+        shell: bash
+        env:
+          # Signing secrets (正式版 release 需要)
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          WAYFARER_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.WAYFARER_ANDROID_KEYSTORE_PASSWORD }}
+          WAYFARER_ANDROID_KEY_ALIAS: ${{ secrets.WAYFARER_ANDROID_KEY_ALIAS }}
+          WAYFARER_ANDROID_KEY_PASSWORD: ${{ secrets.WAYFARER_ANDROID_KEY_PASSWORD }}
+          # App runtime secrets (建议正式版必须提供)
+          WAYFARER_AMAP_API_KEY: ${{ secrets.WAYFARER_AMAP_API_KEY }}
+          # Inputs (tag push 时默认 release)
+          VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.variant || 'release' }}
+          ALLOW_MISSING_AMAP_KEY: ${{ github.event_name == 'workflow_dispatch' && (inputs.allow_missing_amap_key == true || inputs.allow_missing_amap_key == 'true') }}
+        run: |
+          set -euo pipefail
+
+          echo "variant=$VARIANT"
+          if [[ "$VARIANT" != "release" && "$VARIANT" != "benchmark" ]]; then
+            echo "::error::Unknown variant: $VARIANT"
+            exit 1
+          fi
+
+          if [[ "$VARIANT" == "release" ]]; then
+            missing=0
+            for k in ANDROID_KEYSTORE_BASE64 WAYFARER_ANDROID_KEYSTORE_PASSWORD WAYFARER_ANDROID_KEY_ALIAS WAYFARER_ANDROID_KEY_PASSWORD; do
+              if [[ -z "${!k:-}" ]]; then
+                echo "::error::Missing required secret/env: $k"
+                missing=1
+              fi
+            done
+
+            if [[ "$ALLOW_MISSING_AMAP_KEY" != "true" && -z "${WAYFARER_AMAP_API_KEY:-}" ]]; then
+              echo "::error::Missing required secret: WAYFARER_AMAP_API_KEY（正式版建议必须提供；如确实要跳过请在 workflow_dispatch 勾选 allow_missing_amap_key）"
+              missing=1
+            fi
+
+            if (( missing == 1 )); then
+              exit 1
+            fi
+
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > keystore.jks
+            chmod 600 keystore.jks
+
+            export WAYFARER_ANDROID_KEYSTORE_PATH="keystore.jks"
+          fi
+
+          case "$VARIANT" in
+            release) task="assembleRelease" ;;
+            benchmark) task="assembleBenchmark" ;;
+          esac
+
+          ./gradlew :app:$task
+
+          apk_path="app/build/outputs/apk/$VARIANT/app-$VARIANT.apk"
+          if [[ ! -f "$apk_path" ]]; then
+            echo "::error::APK not found: $apk_path"
+            ls -la app/build/outputs/apk || true
+            exit 1
+          fi
+
+          artifact_name="wayfarer-android-${VARIANT}-${GITHUB_REF_NAME}"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "apk_path=$apk_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: android/${{ steps.build.outputs.apk_path }}
+          if-no-files-found: error
+
+  github-release:
+    runs-on: ubuntu-latest
+    needs: build-apk
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-apk.outputs.artifact_name }}
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          generate_release_notes: true
