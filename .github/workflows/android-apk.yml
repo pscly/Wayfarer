@@ -47,7 +47,11 @@ jobs:
       - name: Install Android SDK packages
         run: |
           set -euo pipefail
+          # 在 bash + pipefail 下，`yes | cmd` 可能因 SIGPIPE 导致整个 pipeline 非 0。
+          # 这里临时关闭 pipefail，确保以 sdkmanager 的退出码为准。
+          set +o pipefail
           yes | sdkmanager --licenses
+          set -o pipefail
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Setup Gradle cache
