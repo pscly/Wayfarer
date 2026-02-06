@@ -766,9 +766,9 @@ jobs:
               text = text.replace(f':{port}', ':<PORT>')
 
           # IPv4 redaction (best-effort)
-          text = re.sub(r'\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b', '<IP>', text)
+          text = re.sub(r'\b\d{1,3}(?:\.\d{1,3}){3}\b', '<IP>', text)
           # IPv6 redaction (best-effort)
-          text = re.sub(r'\\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\\b', '<IPV6>', text)
+          text = re.sub(r'\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b', '<IPV6>', text)
 
           offered_fps = []
           server_hostkey_fps = []
@@ -811,7 +811,7 @@ jobs:
 
           for ln in data:
               if not target_ip and 'Connecting to' in ln:
-                  m = re.search(r'Connecting to .*? \\[([^\\]]+)\\] port', ln)
+                  m = re.search(r'Connecting to .*? \[([^\]]+)\] port', ln)
                   if m:
                       target_ip = m.group(1)
                       if ':' in target_ip:
