@@ -82,8 +82,8 @@ android {
         applicationId = "com.wayfarer.android"
         minSdk = 33
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.3.0"
+        versionCode = 5
+        versionName = "0.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -171,10 +171,6 @@ dependencies {
 
     // Play Services Location (includes ActivityRecognitionClient).
     implementation("com.google.android.gms:play-services-location:21.3.0")
-
-    // Health Connect (system steps).
-    // NOTE: Keep this pinned to a version compatible with current AGP/compileSdk.
-    implementation("androidx.health.connect:connect-client:1.1.0-alpha08")
 
     // Room (local persistent store for track points).
     implementation("androidx.room:room-runtime:2.6.1")

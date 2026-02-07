@@ -5,7 +5,7 @@ import android.content.Context
 /**
  * 轻量新手引导状态（SharedPreferences）。
  *
- * 目标：让首次进入 App 的用户知道“步数来自系统全天步数（Health Connect）”，并引导完成授权与同步。
+ * 目标：让首次进入 App 的用户知道“步数来自系统全天步数（计步传感器）”，并引导完成活动识别授权与采样。
  */
 object OnboardingStore {
     private const val PREFS_NAME = "wayfarer_onboarding"
@@ -26,4 +26,3 @@ object OnboardingStore {
         prefs(context).edit().putBoolean(KEY_SYSTEM_STEPS_INTRO_SHOWN, false).apply()
     }
 }
-

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.wayfarer.android.api.AuthStore
+import com.wayfarer.android.steps.StepsSamplingScheduler
 import com.wayfarer.android.sync.WayfarerSyncScheduler
 import com.wayfarer.android.sync.SyncStateStore
 import com.wayfarer.android.ui.auth.AuthGateScreen
@@ -80,12 +81,19 @@ fun WayfarerApp() {
         gateDismissed = AuthGateStore.isDismissed(context)
     }
 
+    // 国内手机“系统步数”：后台 15 分钟采样（best-effort）。
+    LaunchedEffect(Unit) {
+        StepsSamplingScheduler.ensurePeriodicScheduled(context)
+    }
+
     // 当 Auth 变化发生在后台（例如 Worker 刷新失败清理 token）时，App 回到前台需要刷新状态。
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
                     refreshAuthState()
+                    // App 回到前台时，触发一次计步采样，让“今日步数”更及时。
+                    StepsSamplingScheduler.enqueueSampleNow(context)
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)

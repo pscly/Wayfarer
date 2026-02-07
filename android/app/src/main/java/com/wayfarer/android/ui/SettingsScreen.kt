@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,7 +52,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.health.connect.client.HealthConnectClient
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.wayfarer.android.BuildConfig
@@ -59,7 +60,7 @@ import com.wayfarer.android.amap.AmapApiKey
 import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.api.ServerConfigStore
 import com.wayfarer.android.dev.DeveloperModeGate
-import com.wayfarer.android.health.SystemStepsRepository
+import com.wayfarer.android.steps.SensorStepsRepository
 import com.wayfarer.android.sync.SyncStateStore
 import com.wayfarer.android.sync.WayfarerSyncManager
 import com.wayfarer.android.sync.WayfarerSyncScheduler
@@ -68,7 +69,6 @@ import com.wayfarer.android.tracking.TrackPointRepository
 import com.wayfarer.android.ui.auth.AuthGateStore
 import com.wayfarer.android.ui.components.wfSnackbarHostStateOrThrow
 import com.wayfarer.android.ui.sync.rememberSyncSnapshot
-import com.wayfarer.android.ui.util.openHealthConnectManageData
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -325,8 +325,8 @@ private fun SettingsHome(
         item {
             NavItem(
                 icon = Icons.Rounded.BarChart,
-                title = "系统步数（Health Connect）",
-                subtitle = "检查授权、数据源同步与今日步数",
+                title = "系统步数（计步传感器）",
+                subtitle = "无需谷歌套件 · 检查运动权限与今日步数",
                 onClick = onOpenDataSources,
             )
         }
@@ -406,40 +406,21 @@ private fun SettingsDataSourcesPage() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = wfSnackbarHostStateOrThrow()
     val scope = rememberCoroutineScope()
-    val systemStepsRepository = remember { SystemStepsRepository(context) }
+    val sensorStepsRepository = remember { SensorStepsRepository(context) }
     val zone = remember { ZoneId.systemDefault() }
 
-    var sdkStatus by remember { mutableStateOf(systemStepsRepository.sdkStatus()) }
-    var providerPackage by remember { mutableStateOf(systemStepsRepository.providerPackageNameOrNull()) }
-    var permissionChecked by remember { mutableStateOf(false) }
-    var permissionGranted by remember { mutableStateOf(false) }
+    var stepSensorAvailable by remember { mutableStateOf(sensorStepsRepository.isSensorAvailable()) }
+    var permissionGranted by remember {
+        mutableStateOf(
+            context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED,
+        )
+    }
 
     var todayStepsLoading by remember { mutableStateOf(false) }
     var todayStepsError by remember { mutableStateOf<String?>(null) }
     var todaySteps by remember { mutableStateOf<Long?>(null) }
-
-    fun openHealthConnect() {
-        val provider = systemStepsRepository.providerPackageNameOrNull()
-        providerPackage = provider
-        val ok = openHealthConnectManageData(context = context, providerPackageName = provider)
-        if (!ok) {
-            scope.launch { snackbarHostState.showSnackbar("无法打开 Health Connect（请在系统设置中检查是否已安装）") }
-        }
-    }
-
-    fun openHealthConnectInstallOrUpdate() {
-        // Health Connect 默认 Provider 包名（官方）。
-        val pkg = "com.google.android.apps.healthdata"
-        val uriString = "market://details?id=$pkg&url=healthconnect%3A%2F%2Fonboarding"
-        val intent =
-            Intent(Intent.ACTION_VIEW).apply {
-                setPackage("com.android.vending")
-                data = Uri.parse(uriString)
-                putExtra("overlay", true)
-                putExtra("callerId", context.packageName)
-            }
-        runCatching { context.startActivity(intent) }.onFailure { openHealthConnect() }
-    }
+    var lastSampleText by remember { mutableStateOf("-") }
 
     fun openMiHealthIfAvailable(): Boolean {
         val intent = context.packageManager.getLaunchIntentForPackage("com.mi.health") ?: return false
@@ -449,78 +430,72 @@ private fun SettingsDataSourcesPage() {
         }.getOrDefault(false)
     }
 
-    fun refresh() {
-        sdkStatus = systemStepsRepository.sdkStatus()
-        providerPackage = systemStepsRepository.providerPackageNameOrNull()
+    fun refreshSnapshot() {
+        stepSensorAvailable = sensorStepsRepository.isSensorAvailable()
+        permissionGranted =
+            context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
 
-        permissionChecked = false
-        permissionGranted = false
-        todayStepsLoading = false
+        val snapshot = sensorStepsRepository.readSnapshot(zone)
+        todaySteps = snapshot.todaySteps(zone)
+        lastSampleText = snapshot.lastSampleLocalTimeText(zone)
+    }
+
+    fun sampleNow() {
+        refreshSnapshot()
+        if (!stepSensorAvailable) {
+            todayStepsError = "设备不支持计步传感器（无法读取系统全天步数）"
+            return
+        }
+        if (!permissionGranted) {
+            todayStepsError = "未授权“活动识别”权限（系统步数不可用）"
+            return
+        }
+
+        todayStepsLoading = true
         todayStepsError = null
-        todaySteps = null
-
-        if (sdkStatus != HealthConnectClient.SDK_AVAILABLE) return
-
-        systemStepsRepository.hasPermissionsAsync(
-            onResult = { granted ->
-                permissionChecked = true
-                permissionGranted = granted
-                if (!granted) return@hasPermissionsAsync
-
-                todayStepsLoading = true
-                todayStepsError = null
-                todaySteps = null
-                systemStepsRepository.todayStepsAsync(
-                    zone = zone,
-                    onResult = { steps ->
-                        todaySteps = steps
-                        todayStepsLoading = false
-                    },
-                    onError = { t ->
-                        todayStepsError = t.message ?: t.toString()
-                        todayStepsLoading = false
-                    },
-                )
+        sensorStepsRepository.sampleNowAsync(
+            zone = zone,
+            onResult = { snapshot ->
+                todaySteps = snapshot.todaySteps(zone)
+                lastSampleText = snapshot.lastSampleLocalTimeText(zone)
+                todayStepsLoading = false
             },
             onError = { t ->
-                permissionChecked = true
-                permissionGranted = false
                 todayStepsError = t.message ?: t.toString()
+                todayStepsLoading = false
             },
         )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        permissionGranted = granted
+        if (granted) {
+            sampleNow()
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("未授权活动识别权限，无法读取系统步数") }
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    refresh()
+                    refreshSnapshot()
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
-        refresh()
+        refreshSnapshot()
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val sdkText =
-        when (sdkStatus) {
-            HealthConnectClient.SDK_AVAILABLE -> "可用"
-            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "需要安装/更新"
-            HealthConnectClient.SDK_UNAVAILABLE -> "不可用"
-            else -> "未知（$sdkStatus）"
-        }
-
-    val permissionText =
-        when {
-            sdkStatus != HealthConnectClient.SDK_AVAILABLE -> "-"
-            !permissionChecked -> "检查中…"
-            permissionGranted -> "已授权"
-            else -> "未授权"
-        }
+    val permissionText = if (permissionGranted) "已授权" else "未授权"
 
     val todayStepsText =
         when {
-            sdkStatus != HealthConnectClient.SDK_AVAILABLE -> "--"
+            !stepSensorAvailable -> "--"
             !permissionGranted -> "--"
             todayStepsLoading -> "加载中…"
             !todayStepsError.isNullOrBlank() -> "--"
@@ -538,28 +513,24 @@ private fun SettingsDataSourcesPage() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text(text = "系统步数", style = MaterialTheme.typography.titleMedium)
+                    Text(text = "系统步数（计步传感器）", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = "口径：系统全天步数（通过 Health Connect 读取）",
+                        text = "口径：手机系统全天步数（通过计步传感器采样得到，不依赖谷歌套件/Health Connect）",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     HorizontalDivider()
 
-                    StatusRow(label = "Health Connect", ok = sdkStatus == HealthConnectClient.SDK_AVAILABLE)
-                    Text(
-                        text = "SDK 状态：$sdkText",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = "Provider：${providerPackage ?: "-"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    StatusRow(label = "计步传感器", ok = stepSensorAvailable)
+                    StatusRow(label = "活动识别权限", ok = permissionGranted)
                     Text(
                         text = "权限：$permissionText",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "最近采样：$lastSampleText",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -592,7 +563,7 @@ private fun SettingsDataSourcesPage() {
                         )
                     }
                     Text(
-                        text = "说明：如果手机系统/小米健康显示很高，但这里偏小，多半是数据源未同步到 Health Connect。",
+                        text = "说明：步数来自计步传感器的后台采样；部分国内 ROM 可能限制后台导致更新不及时，可点“立即采样一次”，并将 Wayfarer 加入省电白名单。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -610,7 +581,7 @@ private fun SettingsDataSourcesPage() {
 
         item {
             Button(
-                onClick = { refresh() },
+                onClick = { refreshSnapshot() },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("刷新")
@@ -618,22 +589,30 @@ private fun SettingsDataSourcesPage() {
         }
 
         item {
-            if (sdkStatus == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED) {
+            if (!permissionGranted) {
                 FilledTonalButton(
-                    onClick = { openHealthConnectInstallOrUpdate() },
+                    onClick = { permissionLauncher.launch(android.Manifest.permission.ACTIVITY_RECOGNITION) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("安装/更新 Health Connect")
+                    Text("授权活动识别权限")
+                }
+            } else {
+                FilledTonalButton(
+                    onClick = { sampleNow() },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !todayStepsLoading,
+                ) {
+                    Text(if (todayStepsLoading) "采样中…" else "立即采样一次")
                 }
             }
         }
 
         item {
             FilledTonalButton(
-                onClick = { openHealthConnect() },
+                onClick = { openAppSettings(context) },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("打开 Health Connect（授权/数据源）")
+                Text("打开应用设置（手动授权）")
             }
         }
 
@@ -659,22 +638,22 @@ private fun SettingsDataSourcesPage() {
                 ) {
                     Text(text = "常见原因", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = "1) 未授权：先点“打开 Health Connect”，在系统里为 Wayfarer 授权“步数读取”。",
+                        text = "1) 未授权活动识别权限：点上方“授权活动识别权限”。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "2) 需要安装/更新：先点“安装/更新 Health Connect”。",
+                        text = "2) 后台采样不及时：部分国内 ROM 会限制后台任务，请把 Wayfarer 加入省电白名单/允许后台运行。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "3) 数据源未同步：在小米健康/系统健康应用中，开启与 Health Connect 的数据共享（步数）。",
+                        text = "3) 刚安装/刚授权：需要一些采样点才能更贴近系统全天步数；可多进出 App 或点“立即采样一次”。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "4) 刚开启同步：回到此页点“刷新”，或在 Health Connect 中等待数据源同步完成后再回来刷新。",
+                        text = "4) 设备无计步传感器：此页会显示“计步传感器不可用”，则无法读取系统步数。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -1,11 +1,9 @@
 package com.wayfarer.android.ui
 
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -46,13 +44,12 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.health.connect.client.HealthConnectClient
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.db.LifeEventEntity
 import com.wayfarer.android.db.TrackPointEntity
-import com.wayfarer.android.health.SystemStepsRepository
+import com.wayfarer.android.steps.SensorStepsRepository
 import com.wayfarer.android.sync.WayfarerSyncManager
 import com.wayfarer.android.tracking.LifeEventRepository
 import com.wayfarer.android.tracking.TrackingServiceController
@@ -74,7 +71,6 @@ import com.wayfarer.android.ui.records.QuickMarkBottomSheet
 import com.wayfarer.android.ui.sync.rememberSyncSnapshot
 import com.wayfarer.android.ui.util.computeActiveMinutes
 import com.wayfarer.android.ui.util.computeDistanceMeters
-import com.wayfarer.android.ui.util.openHealthConnectManageData
 import com.wayfarer.android.ui.util.formatActiveMinutes
 import com.wayfarer.android.ui.util.formatDistance
 import org.json.JSONObject
@@ -125,7 +121,7 @@ fun RecordsScreen() {
 
     val repository = remember { TrackPointRepository(context) }
     val lifeEventRepository = remember { LifeEventRepository(context) }
-    val systemStepsRepository = remember { SystemStepsRepository(context) }
+    val sensorStepsRepository = remember { SensorStepsRepository(context) }
     val syncManager = remember { WayfarerSyncManager(context) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = wfSnackbarHostStateOrThrow()
@@ -145,13 +141,13 @@ fun RecordsScreen() {
     var todayPointsError by remember { mutableStateOf<String?>(null) }
     var todayPoints by remember { mutableStateOf<List<TrackPointEntity>>(emptyList()) }
 
-    // System all-day steps (Health Connect).
-    var systemStepsSdkStatus by remember { mutableStateOf(systemStepsRepository.sdkStatus()) }
-    var systemStepsPermissionChecked by remember { mutableStateOf(false) }
-    var systemStepsPermissionGranted by remember { mutableStateOf(false) }
-    var todaySystemStepsLoading by remember { mutableStateOf(false) }
-    var todaySystemStepsError by remember { mutableStateOf<String?>(null) }
-    var todaySystemSteps by remember { mutableStateOf<Long?>(null) }
+    // System all-day steps (domestic phones): Sensor.TYPE_STEP_COUNTER + local accumulator.
+    var stepSensorAvailable by remember { mutableStateOf(sensorStepsRepository.isSensorAvailable()) }
+    var stepsPermissionGranted by remember { mutableStateOf(activityGranted) }
+    var todayStepsLoading by remember { mutableStateOf(false) }
+    var todayStepsError by remember { mutableStateOf<String?>(null) }
+    var todaySteps by remember { mutableStateOf<Long?>(null) }
+    var todayStepsLastSampleUtcMs by remember { mutableStateOf<Long?>(null) }
     var showSystemStepsOnboarding by rememberSaveable { mutableStateOf(false) }
 
     var marksTodayLoading by remember { mutableStateOf(false) }
@@ -254,61 +250,40 @@ fun RecordsScreen() {
         )
     }
 
-    fun refreshTodaySystemSteps() {
-        systemStepsSdkStatus = systemStepsRepository.sdkStatus()
-        if (systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE) {
-            todaySystemStepsLoading = false
-            todaySystemStepsError = null
-            todaySystemSteps = null
-            return
-        }
-        if (!systemStepsPermissionGranted) {
-            todaySystemStepsLoading = false
-            todaySystemStepsError = null
-            todaySystemSteps = null
-            return
-        }
+    fun refreshTodayStepsSnapshot() {
+        stepSensorAvailable = sensorStepsRepository.isSensorAvailable()
+        stepsPermissionGranted =
+            context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) ==
+                PackageManager.PERMISSION_GRANTED
 
-        todaySystemStepsLoading = true
-        todaySystemStepsError = null
-        todaySystemSteps = null
-        systemStepsRepository.todayStepsAsync(
-            zone = zone,
-            onResult = {
-                todaySystemSteps = it
-                todaySystemStepsLoading = false
-            },
-            onError = { t ->
-                todaySystemStepsError = toSystemStepsError(t)
-                todaySystemStepsLoading = false
-            },
-        )
+        val snapshot = sensorStepsRepository.readSnapshot(zone)
+        todaySteps = snapshot.todaySteps(zone)
+        todayStepsLastSampleUtcMs = snapshot.lastSampleUtcMs
     }
 
-    fun refreshSystemStepsPermissionAndMaybeTodaySteps() {
-        systemStepsPermissionChecked = false
-        systemStepsSdkStatus = systemStepsRepository.sdkStatus()
-        if (systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE) {
-            systemStepsPermissionChecked = true
-            systemStepsPermissionGranted = false
-            todaySystemStepsLoading = false
-            todaySystemStepsError = null
-            todaySystemSteps = null
+    fun sampleTodayStepsNow() {
+        refreshTodayStepsSnapshot()
+        if (!stepSensorAvailable) {
+            todayStepsError = "设备不支持计步传感器（无法读取系统全天步数）"
+            return
+        }
+        if (!stepsPermissionGranted) {
+            todayStepsError = "未授权“活动识别”权限（系统步数不可用）"
             return
         }
 
-        systemStepsRepository.hasPermissionsAsync(
-            onResult = { granted ->
-                systemStepsPermissionChecked = true
-                systemStepsPermissionGranted = granted
-                if (granted) refreshTodaySystemSteps()
+        todayStepsLoading = true
+        todayStepsError = null
+        sensorStepsRepository.sampleNowAsync(
+            zone = zone,
+            onResult = { snapshot ->
+                todaySteps = snapshot.todaySteps(zone)
+                todayStepsLastSampleUtcMs = snapshot.lastSampleUtcMs
+                todayStepsLoading = false
             },
             onError = { t ->
-                systemStepsPermissionChecked = true
-                systemStepsPermissionGranted = false
-                todaySystemStepsLoading = false
-                todaySystemStepsError = toSystemStepsError(t)
-                todaySystemSteps = null
+                todayStepsError = t.message ?: t.toString()
+                todayStepsLoading = false
             },
         )
     }
@@ -390,7 +365,7 @@ fun RecordsScreen() {
     fun refreshAll() {
         refreshStats()
         refreshTodayPoints()
-        refreshSystemStepsPermissionAndMaybeTodaySteps()
+        refreshTodayStepsSnapshot()
         refreshMarksToday()
         refreshSessions()
         refreshActiveRangeMark()
@@ -398,12 +373,15 @@ fun RecordsScreen() {
 
     LaunchedEffect(Unit) {
         refreshAll()
+        if (stepSensorAvailable && stepsPermissionGranted) {
+            sampleTodayStepsNow()
+        }
     }
 
-    // 首次进入：如果系统步数未开启，弹一次引导（仅一次，避免打扰）。
-    LaunchedEffect(systemStepsPermissionChecked, systemStepsPermissionGranted, systemStepsSdkStatus) {
-        if (!systemStepsPermissionChecked) return@LaunchedEffect
-        if (systemStepsPermissionGranted) return@LaunchedEffect
+    // 首次进入：如果系统步数未开启（未授权活动识别），弹一次引导（仅一次，避免打扰）。
+    LaunchedEffect(stepSensorAvailable, stepsPermissionGranted) {
+        if (!stepSensorAvailable) return@LaunchedEffect
+        if (stepsPermissionGranted) return@LaunchedEffect
         if (OnboardingStore.isSystemStepsIntroShown(context)) return@LaunchedEffect
 
         // 仅标记“展示过”，避免用户每次进入都被弹窗打断。
@@ -416,7 +394,10 @@ fun RecordsScreen() {
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    refreshSystemStepsPermissionAndMaybeTodaySteps()
+                    refreshTodayStepsSnapshot()
+                    if (stepSensorAvailable && stepsPermissionGranted) {
+                        sampleTodayStepsNow()
+                    }
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -481,6 +462,12 @@ fun RecordsScreen() {
             (result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true) ||
                 (result[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true)
 
+        val permissionActivityGranted = (result[android.Manifest.permission.ACTIVITY_RECOGNITION] == true)
+        if (permissionActivityGranted) {
+            stepsPermissionGranted = true
+            sampleTodayStepsNow()
+        }
+
         if (permissionLocationGranted) {
             TrackingServiceController.start(context)
             TrackingStatusStore.markStarted(context)
@@ -488,59 +475,36 @@ fun RecordsScreen() {
         }
     }
 
-    fun openHealthConnect() {
-        val ok =
-            openHealthConnectManageData(
-                context = context,
-                providerPackageName = systemStepsRepository.providerPackageNameOrNull(),
-            )
-        if (!ok) {
-            scope.launch { snackbarHostState.showSnackbar("无法打开 Health Connect（请在系统设置中检查是否已安装）") }
-        }
-    }
-
-    fun openHealthConnectInstallOrUpdate() {
-        // Health Connect 默认 Provider 包名（官方）。
-        val providerPackage = "com.google.android.apps.healthdata"
-        val uriString = "market://details?id=$providerPackage&url=healthconnect%3A%2F%2Fonboarding"
-        val intent =
-            Intent(Intent.ACTION_VIEW).apply {
-                setPackage("com.android.vending")
-                data = Uri.parse(uriString)
-                putExtra("overlay", true)
-                putExtra("callerId", context.packageName)
-            }
-        runCatching {
-            context.startActivity(intent)
-        }.onFailure {
-            // 没有 Play Store 的设备上，退化为打开 Health Connect 设置入口（若已内置仍可用）。
-            openHealthConnect()
+    val activityPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        stepsPermissionGranted = granted
+        if (granted) {
+            sampleTodayStepsNow()
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("未授权活动识别权限，无法读取系统步数") }
         }
     }
 
     if (showSystemStepsOnboarding) {
-        val primaryLabel =
-            when (systemStepsSdkStatus) {
-                HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "安装/更新"
-                HealthConnectClient.SDK_AVAILABLE -> "立即开启"
-                else -> "查看"
-            }
+        val primaryLabel = if (stepsPermissionGranted) "立即采样" else "授权活动识别"
         AlertDialog(
             onDismissRequest = { showSystemStepsOnboarding = false },
             title = { Text("开启系统步数（推荐）") },
             text = {
                 Text(
-                    "Wayfarer 的“今日步数/统计步数”来自手机系统的全天步数（通过 Health Connect 读取），不会只统计你开启记录的那一小段。\n\n" +
-                        "如果你手机系统/小米健康显示 2 万，但这里很小，通常是数据源还没同步到 Health Connect，可在 设置 → 系统步数 里排查。",
+                    "Wayfarer 的“今日步数/统计步数”来自手机系统的全天步数（计步传感器采样），不会只统计你开启记录的那一小段。\n\n" +
+                        "首次使用需要授权“活动识别”权限；授权后会自动采样一次，并在后台每 15 分钟 best-effort 更新。",
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showSystemStepsOnboarding = false
-                        when (systemStepsSdkStatus) {
-                            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> openHealthConnectInstallOrUpdate()
-                            else -> openHealthConnect()
+                        if (stepsPermissionGranted) {
+                            sampleTodayStepsNow()
+                        } else {
+                            activityPermissionLauncher.launch(android.Manifest.permission.ACTIVITY_RECOGNITION)
                         }
                     },
                 ) {
@@ -1124,18 +1088,24 @@ fun RecordsScreen() {
         return
     }
 
-    val todayStepsText = todaySystemSteps?.toString() ?: "--"
+    val todayStepsText = todaySteps?.toString() ?: "--"
     val todayDistanceM = remember(todayPoints) { computeDistanceMeters(todayPoints) }
     val todayActiveMinutes = remember(todayPoints) { computeActiveMinutes(todayPoints, zone) }
 
+    val lastSampleText =
+        todayStepsLastSampleUtcMs?.let { ms ->
+            val zdt = Instant.ofEpochMilli(ms).atZone(zone)
+            "%02d:%02d".format(zdt.hour, zdt.minute)
+        } ?: "-"
+
     val stepsHelper =
         when {
-            systemStepsSdkStatus == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "需要安装/更新"
-            systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE -> "不可用"
-            !systemStepsPermissionGranted -> "需授权（Health Connect）"
-            todaySystemStepsLoading -> "系统加载中…"
-            !todaySystemStepsError.isNullOrBlank() -> "系统读取失败"
-            else -> "系统（全天）"
+            !stepSensorAvailable -> "传感器不可用"
+            !stepsPermissionGranted -> "需授权"
+            todayStepsLoading -> "采样中…"
+            !todayStepsError.isNullOrBlank() -> "采样失败"
+            todayStepsLastSampleUtcMs == null -> "系统（未采样）"
+            else -> "系统（$lastSampleText）"
         }
 
     LazyColumn(
@@ -1167,37 +1137,59 @@ fun RecordsScreen() {
                 )
 
                 when {
-                    systemStepsSdkStatus == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> {
-                        WfEmptyState(
-                            title = "开启系统步数",
-                            body = "需要安装/更新 Health Connect 才能读取系统全天步数（与你手机计步一致）。",
-                            action = {
-                                FilledTonalButton(onClick = { openHealthConnectInstallOrUpdate() }) {
-                                    Text("安装/更新")
-                                }
-                            },
-                        )
-                    }
-
-                    systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE -> {
+                    !stepSensorAvailable -> {
                         WfEmptyState(
                             title = "系统步数不可用",
-                            body = "当前设备不支持 Health Connect，无法读取系统全天步数。",
+                            body = "当前设备不支持计步传感器，无法读取系统全天步数。",
+                        )
+                    }
+
+                    !stepsPermissionGranted -> {
+                        WfEmptyState(
+                            title = "开启系统步数",
+                            body = "授权后，“今日步数/统计步数”将显示系统全天步数（与你手机计步一致）。",
                             action = {
-                                FilledTonalButton(onClick = { openHealthConnect() }) {
-                                    Text("查看")
+                                FilledTonalButton(
+                                    onClick = { activityPermissionLauncher.launch(android.Manifest.permission.ACTIVITY_RECOGNITION) },
+                                ) {
+                                    Text("授权活动识别")
                                 }
                             },
                         )
                     }
 
-                    !systemStepsPermissionGranted -> {
+                    todayStepsLoading -> {
                         WfEmptyState(
-                            title = "开启系统步数",
-                            body = "授权后，“今日步数”将显示系统全天步数（与你手机计步一致）。",
+                            title = "系统步数采样中",
+                            body = "正在读取计步传感器…",
+                        )
+                    }
+
+                    !todayStepsError.isNullOrBlank() -> {
+                        WfEmptyState(
+                            title = "系统步数读取失败",
+                            body = todayStepsError ?: "未知错误",
                             action = {
-                                FilledTonalButton(onClick = { openHealthConnect() }) {
-                                    Text("打开 Health Connect")
+                                FilledTonalButton(
+                                    onClick = { sampleTodayStepsNow() },
+                                    enabled = !todayStepsLoading,
+                                ) {
+                                    Text("重试采样")
+                                }
+                            },
+                        )
+                    }
+
+                    todayStepsLastSampleUtcMs == null -> {
+                        WfEmptyState(
+                            title = "系统步数未就绪",
+                            body = "尚未采样到系统步数，点击下方按钮采样一次即可展示。",
+                            action = {
+                                FilledTonalButton(
+                                    onClick = { sampleTodayStepsNow() },
+                                    enabled = !todayStepsLoading,
+                                ) {
+                                    Text(if (todayStepsLoading) "采样中…" else "立即采样一次")
                                 }
                             },
                         )
@@ -1210,9 +1202,9 @@ fun RecordsScreen() {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                } else if (!todaySystemStepsError.isNullOrBlank()) {
+                } else if (!todayStepsError.isNullOrBlank()) {
                     Text(
-                        text = "系统步数读取失败：${todaySystemStepsError ?: ""}",
+                        text = "系统步数读取失败：${todayStepsError ?: ""}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
