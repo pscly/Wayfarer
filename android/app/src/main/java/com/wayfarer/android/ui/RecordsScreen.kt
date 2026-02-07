@@ -1,9 +1,11 @@
 package com.wayfarer.android.ui
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -28,7 +30,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,20 +42,45 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.health.connect.client.HealthConnectClient
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.wayfarer.android.api.AuthStore
 import com.wayfarer.android.db.LifeEventEntity
 import com.wayfarer.android.db.TrackPointEntity
+import com.wayfarer.android.health.SystemStepsRepository
+import com.wayfarer.android.sync.WayfarerSyncManager
 import com.wayfarer.android.tracking.LifeEventRepository
 import com.wayfarer.android.tracking.TrackingServiceController
 import com.wayfarer.android.tracking.TrackPointRepository
 import com.wayfarer.android.tracking.TrackingStatusStore
+import com.wayfarer.android.ui.components.WfCard
+import com.wayfarer.android.ui.components.WfDimens
+import com.wayfarer.android.ui.components.WfEmptyState
+import com.wayfarer.android.ui.components.WfKpiCard
+import com.wayfarer.android.ui.components.WfSectionHeader
+import com.wayfarer.android.ui.components.wfSnackbarHostStateOrThrow
+import com.wayfarer.android.ui.onboarding.OnboardingStore
+import com.wayfarer.android.ui.records.MarkDetailScreen
+import com.wayfarer.android.ui.records.MarkLabelHistoryStore
+import com.wayfarer.android.ui.records.MarkCard
+import com.wayfarer.android.ui.records.MarksListScreen
+import com.wayfarer.android.ui.records.MarksRange
+import com.wayfarer.android.ui.records.QuickMarkBottomSheet
 import com.wayfarer.android.ui.sync.rememberSyncSnapshot
+import com.wayfarer.android.ui.util.computeActiveMinutes
+import com.wayfarer.android.ui.util.computeDistanceMeters
+import com.wayfarer.android.ui.util.openHealthConnectManageData
+import com.wayfarer.android.ui.util.formatActiveMinutes
+import com.wayfarer.android.ui.util.formatDistance
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -59,10 +88,6 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 private data class RecordSessionSummary(
     val sessionId: String,
@@ -80,9 +105,15 @@ private data class MarkerCoords(
     val longitudeGcj02: Double?,
 )
 
+private enum class RecordsRoute {
+    HOME,
+    MARKS_LIST,
+}
+
 @Composable
 fun RecordsScreen() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val syncSnapshot = rememberSyncSnapshot(context)
 
     var isTracking by rememberSaveable { mutableStateOf(TrackingStatusStore.readIsTracking(context)) }
@@ -94,22 +125,56 @@ fun RecordsScreen() {
 
     val repository = remember { TrackPointRepository(context) }
     val lifeEventRepository = remember { LifeEventRepository(context) }
+    val systemStepsRepository = remember { SystemStepsRepository(context) }
+    val syncManager = remember { WayfarerSyncManager(context) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = wfSnackbarHostStateOrThrow()
+    val zone = remember { ZoneId.systemDefault() }
+
+    var route by rememberSaveable { mutableStateOf(RecordsRoute.HOME) }
+
+    var showQuickMarkSheet by rememberSaveable { mutableStateOf(false) }
+    var recentMarkLabels by remember { mutableStateOf(MarkLabelHistoryStore.read(context)) }
 
     var activeRangeMark by remember { mutableStateOf<LifeEventEntity?>(null) }
-
-    var showMarkDialog by rememberSaveable { mutableStateOf(false) }
-    var markType by rememberSaveable { mutableStateOf(LifeEventEntity.EventType.MARK_POINT) }
-    var markLabel by rememberSaveable { mutableStateOf("") }
-    var markNote by rememberSaveable { mutableStateOf("") }
-    var markUseLocation by rememberSaveable { mutableStateOf(true) }
     var markBusy by remember { mutableStateOf(false) }
     var markError by remember { mutableStateOf<String?>(null) }
+
+    // Today preview (KPI + markers).
+    var todayPointsLoading by remember { mutableStateOf(false) }
+    var todayPointsError by remember { mutableStateOf<String?>(null) }
+    var todayPoints by remember { mutableStateOf<List<TrackPointEntity>>(emptyList()) }
+
+    // System all-day steps (Health Connect).
+    var systemStepsSdkStatus by remember { mutableStateOf(systemStepsRepository.sdkStatus()) }
+    var systemStepsPermissionChecked by remember { mutableStateOf(false) }
+    var systemStepsPermissionGranted by remember { mutableStateOf(false) }
+    var todaySystemStepsLoading by remember { mutableStateOf(false) }
+    var todaySystemStepsError by remember { mutableStateOf<String?>(null) }
+    var todaySystemSteps by remember { mutableStateOf<Long?>(null) }
+    var showSystemStepsOnboarding by rememberSaveable { mutableStateOf(false) }
+
+    var marksTodayLoading by remember { mutableStateOf(false) }
+    var marksTodayError by remember { mutableStateOf<String?>(null) }
+    var marksToday by remember { mutableStateOf<List<LifeEventEntity>>(emptyList()) }
+
+    // Marks list route.
+    var marksRange by rememberSaveable { mutableStateOf(MarksRange.TODAY) }
+    var marksListLoading by remember { mutableStateOf(false) }
+    var marksListError by remember { mutableStateOf<String?>(null) }
+    var marksList by remember { mutableStateOf<List<LifeEventEntity>>(emptyList()) }
+
+    var selectedMarkId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedMarkLoading by remember { mutableStateOf(false) }
+    var selectedMarkError by remember { mutableStateOf<String?>(null) }
+    var selectedMark by remember { mutableStateOf<LifeEventEntity?>(null) }
 
     // Local stats (counts, latest timestamp)
     var statsLoading by remember { mutableStateOf(false) }
     var statsError by remember { mutableStateOf<String?>(null) }
     var stats by remember { mutableStateOf<TrackPointRepository.TrackPointStats?>(null) }
+
+    var showSystemStatus by rememberSaveable { mutableStateOf(false) }
 
     // Session list
     var sessionsLoading by remember { mutableStateOf(false) }
@@ -117,7 +182,8 @@ fun RecordsScreen() {
     var sessions by remember { mutableStateOf<List<RecordSessionSummary>>(emptyList()) }
     var sessionsLoadSeq by remember { mutableStateOf(0) }
 
-    var selectedSession by rememberSaveable { mutableStateOf<RecordSessionSummary?>(null) }
+    // 自定义对象不要用 rememberSaveable（否则旋转/进程恢复可能崩）。
+    var selectedSession by remember { mutableStateOf<RecordSessionSummary?>(null) }
     var detailPointsLoading by remember { mutableStateOf(false) }
     var detailPointsError by remember { mutableStateOf<String?>(null) }
     var detailPoints by remember { mutableStateOf<List<TrackPointEntity>>(emptyList()) }
@@ -133,6 +199,155 @@ fun RecordsScreen() {
             onError = {
                 statsError = it.message ?: it.toString()
                 statsLoading = false
+            },
+        )
+    }
+
+    fun hasAuth(): Boolean {
+        val access = AuthStore.readAccessToken(context)
+        val refresh = AuthStore.readRefreshToken(context)
+        return !access.isNullOrBlank() || !refresh.isNullOrBlank()
+    }
+
+    fun toSystemStepsError(t: Throwable): String {
+        return when (t) {
+            is SecurityException -> "未授权系统步数（请点击下方“开启系统步数”）"
+            else -> t.message ?: t.toString()
+        }
+    }
+
+    fun resolveTodayRangeUtc(): Pair<String, String> {
+        val now = Instant.now()
+        val start = LocalDate.now(zone).atStartOfDay(zone).toInstant()
+        return start.toString() to now.toString()
+    }
+
+    fun resolveMarksRangeUtc(range: MarksRange): Pair<String, String> {
+        val now = Instant.now()
+        val days =
+            when (range) {
+                MarksRange.TODAY -> 1
+                MarksRange.LAST_7D -> 7
+                MarksRange.LAST_30D -> 30
+            }
+        val startDay = LocalDate.now(zone).minusDays((days - 1).toLong())
+        val start = startDay.atStartOfDay(zone).toInstant()
+        return start.toString() to now.toString()
+    }
+
+    fun refreshTodayPoints() {
+        val (startUtc, endUtc) = resolveTodayRangeUtc()
+        todayPointsLoading = true
+        todayPointsError = null
+        repository.rangePointsAsync(
+            startUtc = startUtc,
+            endUtc = endUtc,
+            limit = 20_000,
+            onResult = {
+                todayPoints = it
+                todayPointsLoading = false
+            },
+            onError = {
+                todayPointsError = it.message ?: it.toString()
+                todayPointsLoading = false
+            },
+        )
+    }
+
+    fun refreshTodaySystemSteps() {
+        systemStepsSdkStatus = systemStepsRepository.sdkStatus()
+        if (systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE) {
+            todaySystemStepsLoading = false
+            todaySystemStepsError = null
+            todaySystemSteps = null
+            return
+        }
+        if (!systemStepsPermissionGranted) {
+            todaySystemStepsLoading = false
+            todaySystemStepsError = null
+            todaySystemSteps = null
+            return
+        }
+
+        todaySystemStepsLoading = true
+        todaySystemStepsError = null
+        todaySystemSteps = null
+        systemStepsRepository.todayStepsAsync(
+            zone = zone,
+            onResult = {
+                todaySystemSteps = it
+                todaySystemStepsLoading = false
+            },
+            onError = { t ->
+                todaySystemStepsError = toSystemStepsError(t)
+                todaySystemStepsLoading = false
+            },
+        )
+    }
+
+    fun refreshSystemStepsPermissionAndMaybeTodaySteps() {
+        systemStepsPermissionChecked = false
+        systemStepsSdkStatus = systemStepsRepository.sdkStatus()
+        if (systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE) {
+            systemStepsPermissionChecked = true
+            systemStepsPermissionGranted = false
+            todaySystemStepsLoading = false
+            todaySystemStepsError = null
+            todaySystemSteps = null
+            return
+        }
+
+        systemStepsRepository.hasPermissionsAsync(
+            onResult = { granted ->
+                systemStepsPermissionChecked = true
+                systemStepsPermissionGranted = granted
+                if (granted) refreshTodaySystemSteps()
+            },
+            onError = { t ->
+                systemStepsPermissionChecked = true
+                systemStepsPermissionGranted = false
+                todaySystemStepsLoading = false
+                todaySystemStepsError = toSystemStepsError(t)
+                todaySystemSteps = null
+            },
+        )
+    }
+
+    fun refreshMarksToday() {
+        val (startUtc, endUtc) = resolveTodayRangeUtc()
+        marksTodayLoading = true
+        marksTodayError = null
+        lifeEventRepository.rangeOverlappingAsync(
+            startUtc = startUtc,
+            endUtc = endUtc,
+            limit = 2000,
+            onResult = { items ->
+                marksToday = items.sortedByDescending { it.startAtUtc }
+                marksTodayLoading = false
+            },
+            onError = { t ->
+                marksTodayError = t.message ?: t.toString()
+                marksTodayLoading = false
+            },
+        )
+    }
+
+    fun refreshMarksList() {
+        val (startUtc, endUtc) = resolveMarksRangeUtc(marksRange)
+        marksListLoading = true
+        marksListError = null
+        lifeEventRepository.rangeOverlappingAsync(
+            startUtc = startUtc,
+            endUtc = endUtc,
+            limit = 2000,
+            onResult = { items ->
+                // rangeOverlapping 返回 start_at ASC；列表更偏向“最近的在前”。
+                marksList = items.sortedByDescending { it.startAtUtc }
+                marksListLoading = false
+            },
+            onError = { t ->
+                marksListError = t.message ?: t.toString()
+                marksListLoading = false
             },
         )
     }
@@ -174,12 +389,38 @@ fun RecordsScreen() {
 
     fun refreshAll() {
         refreshStats()
+        refreshTodayPoints()
+        refreshSystemStepsPermissionAndMaybeTodaySteps()
+        refreshMarksToday()
         refreshSessions()
         refreshActiveRangeMark()
     }
 
     LaunchedEffect(Unit) {
         refreshAll()
+    }
+
+    // 首次进入：如果系统步数未开启，弹一次引导（仅一次，避免打扰）。
+    LaunchedEffect(systemStepsPermissionChecked, systemStepsPermissionGranted, systemStepsSdkStatus) {
+        if (!systemStepsPermissionChecked) return@LaunchedEffect
+        if (systemStepsPermissionGranted) return@LaunchedEffect
+        if (OnboardingStore.isSystemStepsIntroShown(context)) return@LaunchedEffect
+
+        // 仅标记“展示过”，避免用户每次进入都被弹窗打断。
+        OnboardingStore.markSystemStepsIntroShown(context)
+        showSystemStepsOnboarding = true
+    }
+
+    // 从 Health Connect 授权/同步回来后，需要在 ON_RESUME 主动刷新（否则用户会误以为“点了没用”）。
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    refreshSystemStepsPermissionAndMaybeTodaySteps()
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // 当后台同步拉取到新数据时，刷新界面，避免“登录后同步了但列表不更新”的体验。
@@ -190,6 +431,39 @@ fun RecordsScreen() {
     LaunchedEffect(isTracking) {
         // Start/stop often changes local data quickly.
         refreshAll()
+    }
+
+    LaunchedEffect(route, marksRange, syncSnapshot.lastPullAtMs) {
+        if (route == RecordsRoute.MARKS_LIST) {
+            refreshMarksList()
+        }
+    }
+
+    LaunchedEffect(selectedMarkId, syncSnapshot.lastPullAtMs) {
+        val id = selectedMarkId?.trim().orEmpty()
+        if (id.isBlank()) {
+            selectedMarkLoading = false
+            selectedMarkError = null
+            selectedMark = null
+            return@LaunchedEffect
+        }
+
+        selectedMarkLoading = true
+        selectedMarkError = null
+        selectedMark = null
+        lifeEventRepository.getByEventIdAsync(
+            eventId = id,
+            onResult = {
+                if (selectedMarkId != id) return@getByEventIdAsync
+                selectedMark = it
+                selectedMarkLoading = false
+            },
+            onError = { t ->
+                if (selectedMarkId != id) return@getByEventIdAsync
+                selectedMarkError = t.message ?: t.toString()
+                selectedMarkLoading = false
+            },
+        )
     }
 
     val requiredPermissions = remember {
@@ -214,6 +488,73 @@ fun RecordsScreen() {
         }
     }
 
+    fun openHealthConnect() {
+        val ok =
+            openHealthConnectManageData(
+                context = context,
+                providerPackageName = systemStepsRepository.providerPackageNameOrNull(),
+            )
+        if (!ok) {
+            scope.launch { snackbarHostState.showSnackbar("无法打开 Health Connect（请在系统设置中检查是否已安装）") }
+        }
+    }
+
+    fun openHealthConnectInstallOrUpdate() {
+        // Health Connect 默认 Provider 包名（官方）。
+        val providerPackage = "com.google.android.apps.healthdata"
+        val uriString = "market://details?id=$providerPackage&url=healthconnect%3A%2F%2Fonboarding"
+        val intent =
+            Intent(Intent.ACTION_VIEW).apply {
+                setPackage("com.android.vending")
+                data = Uri.parse(uriString)
+                putExtra("overlay", true)
+                putExtra("callerId", context.packageName)
+            }
+        runCatching {
+            context.startActivity(intent)
+        }.onFailure {
+            // 没有 Play Store 的设备上，退化为打开 Health Connect 设置入口（若已内置仍可用）。
+            openHealthConnect()
+        }
+    }
+
+    if (showSystemStepsOnboarding) {
+        val primaryLabel =
+            when (systemStepsSdkStatus) {
+                HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "安装/更新"
+                HealthConnectClient.SDK_AVAILABLE -> "立即开启"
+                else -> "查看"
+            }
+        AlertDialog(
+            onDismissRequest = { showSystemStepsOnboarding = false },
+            title = { Text("开启系统步数（推荐）") },
+            text = {
+                Text(
+                    "Wayfarer 的“今日步数/统计步数”来自手机系统的全天步数（通过 Health Connect 读取），不会只统计你开启记录的那一小段。\n\n" +
+                        "如果你手机系统/小米健康显示 2 万，但这里很小，通常是数据源还没同步到 Health Connect，可在 设置 → 系统步数 里排查。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSystemStepsOnboarding = false
+                        when (systemStepsSdkStatus) {
+                            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> openHealthConnectInstallOrUpdate()
+                            else -> openHealthConnect()
+                        }
+                    },
+                ) {
+                    Text(primaryLabel)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSystemStepsOnboarding = false }) {
+                    Text("稍后")
+                }
+            },
+        )
+    }
+
     fun resolvedUserId(): String {
         return AuthStore.readUserId(context) ?: "local"
     }
@@ -229,8 +570,15 @@ fun RecordsScreen() {
         var best: Location? = null
         for (provider in candidates) {
             val loc = runCatching { lm.getLastKnownLocation(provider) }.getOrNull() ?: continue
-            if (best == null || (loc.hasAccuracy() && loc.accuracy < (best?.accuracy ?: Float.MAX_VALUE))) {
+            val current = best
+            if (current == null) {
                 best = loc
+                continue
+            }
+
+            if (loc.hasAccuracy()) {
+                val bestAcc = if (current.hasAccuracy()) current.accuracy else Float.MAX_VALUE
+                if (loc.accuracy < bestAcc) best = loc
             }
         }
         return best
@@ -293,29 +641,33 @@ fun RecordsScreen() {
         )
     }
 
-    fun createMark() {
-        val label = markLabel.trim()
-        if (label.isBlank()) {
+    fun createMark(
+        type: String,
+        label: String,
+        note: String?,
+        useLocation: Boolean,
+    ) {
+        val normalizedLabel = label.trim()
+        if (normalizedLabel.isBlank()) {
             markError = "请先输入标签（例如：出门买东西）"
             return
         }
-        if (markType == LifeEventEntity.EventType.MARK_RANGE && activeRangeMark != null) {
+        if (type == LifeEventEntity.EventType.MARK_RANGE && activeRangeMark != null) {
             markError = "已有正在进行的区间标记，请先结束。"
             return
         }
 
         markBusy = true
         markError = null
-        resolveMarkerCoordsBestEffort(useLocation = markUseLocation) { coords ->
+        resolveMarkerCoordsBestEffort(useLocation = useLocation) { coords ->
             val now = Instant.now()
             val startAt = now.toString()
             val endAt =
-                if (markType == LifeEventEntity.EventType.MARK_POINT) {
+                if (type == LifeEventEntity.EventType.MARK_POINT) {
                     now.plusSeconds(1).toString()
                 } else {
                     null
                 }
-            val note = markNote.trim().takeIf { it.isNotBlank() }
 
             val payloadJson =
                 runCatching {
@@ -328,11 +680,11 @@ fun RecordsScreen() {
             val entity = LifeEventEntity(
                 userId = resolvedUserId(),
                 eventId = UUID.randomUUID().toString(),
-                eventType = markType,
+                eventType = type,
                 startAtUtc = startAt,
                 endAtUtc = endAt,
-                label = label,
-                note = note,
+                label = normalizedLabel,
+                note = note?.trim()?.takeIf { it.isNotBlank() },
                 latitudeWgs84 = coords?.latitudeWgs84,
                 longitudeWgs84 = coords?.longitudeWgs84,
                 latitudeGcj02 = coords?.latitudeGcj02,
@@ -347,10 +699,22 @@ fun RecordsScreen() {
                 entity = entity,
                 onDone = {
                     markBusy = false
-                    showMarkDialog = false
-                    markLabel = ""
-                    markNote = ""
+                    showQuickMarkSheet = false
+                    markError = null
+
+                    MarkLabelHistoryStore.add(context, normalizedLabel)
+                    recentMarkLabels = MarkLabelHistoryStore.read(context)
+
+                    refreshMarksToday()
                     refreshActiveRangeMark()
+
+                    val msg =
+                        if (type == LifeEventEntity.EventType.MARK_RANGE) {
+                            "已开始区间标记：$normalizedLabel"
+                        } else {
+                            "已创建标记：$normalizedLabel"
+                        }
+                    scope.launch { snackbarHostState.showSnackbar(message = msg) }
                 },
                 onError = { err ->
                     markBusy = false
@@ -406,7 +770,10 @@ fun RecordsScreen() {
                 entity = updated,
                 onDone = {
                     markBusy = false
+                    markError = null
                     refreshActiveRangeMark()
+                    refreshMarksToday()
+                    scope.launch { snackbarHostState.showSnackbar(message = "已结束区间标记：${active.label}") }
                 },
                 onError = { err ->
                     markBusy = false
@@ -416,98 +783,212 @@ fun RecordsScreen() {
         }
     }
 
-    if (showMarkDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!markBusy) {
-                    showMarkDialog = false
+    QuickMarkBottomSheet(
+        visible = showQuickMarkSheet,
+        activeRangeMark = activeRangeMark,
+        recentLabels = recentMarkLabels,
+        busy = markBusy,
+        error = markError,
+        onDismiss = {
+            if (!markBusy) {
+                showQuickMarkSheet = false
+                markError = null
+            }
+        },
+        onCreate = { type, label, note, useLocation ->
+            createMark(
+                type = type,
+                label = label,
+                note = note,
+                useLocation = useLocation,
+            )
+        },
+        onEndActiveRange = { endActiveRangeMark() },
+    )
+
+    if (selectedMarkId != null) {
+        val mark = selectedMark
+        if (selectedMarkLoading) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(WfDimens.PagePadding),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FilledTonalButton(onClick = { selectedMarkId = null }) { Text("返回") }
+                Text(
+                    text = "读取标记中…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return
+        }
+
+        if (mark == null) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(WfDimens.PagePadding),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FilledTonalButton(onClick = { selectedMarkId = null }) { Text("返回") }
+                Text(
+                    text = selectedMarkError ?: "标记不存在或已被删除",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            return
+        }
+
+        val requiresRemote = mark.syncStatus == LifeEventEntity.SyncStatus.ACKED
+        val canRemote = hasAuth()
+
+        fun updateLocal(label: String, note: String?, markRemoteSyncedAt: String?) {
+            val now = Instant.now().toString()
+            val updated =
+                mark.copy(
+                    label = label,
+                    note = note,
+                    updatedAtUtc = now,
+                    lastSyncedAtUtc = markRemoteSyncedAt ?: mark.lastSyncedAtUtc,
+                    syncStatus =
+                        if (requiresRemote) {
+                            LifeEventEntity.SyncStatus.ACKED
+                        } else {
+                            mark.syncStatus
+                        },
+                )
+            lifeEventRepository.updateAsync(
+                entity = updated,
+                onDone = {
+                    markBusy = false
                     markError = null
-                }
-            },
-            title = { Text("新建标记") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            enabled = !markBusy,
-                            onClick = { markType = LifeEventEntity.EventType.MARK_POINT },
-                        ) {
-                            Text(
-                                text = if (markType == LifeEventEntity.EventType.MARK_POINT) "时间点 ✓" else "时间点",
-                            )
-                        }
+                    selectedMark = updated
+                    refreshMarksToday()
+                    if (route == RecordsRoute.MARKS_LIST) refreshMarksList()
+                    scope.launch { snackbarHostState.showSnackbar(message = "已保存") }
+                },
+                onError = { t ->
+                    markBusy = false
+                    markError = t.message ?: t.toString()
+                },
+            )
+        }
 
-                        Button(
-                            enabled = !markBusy && activeRangeMark == null,
-                            onClick = { markType = LifeEventEntity.EventType.MARK_RANGE },
-                        ) {
-                            Text(
-                                text = if (markType == LifeEventEntity.EventType.MARK_RANGE) "区间（开始） ✓" else "区间（开始）",
-                            )
-                        }
-                    }
+        fun saveMark(label: String, note: String?) {
+            val normalized = label.trim()
+            if (normalized.isBlank()) {
+                scope.launch { snackbarHostState.showSnackbar(message = "标签不能为空") }
+                return
+            }
 
-                    OutlinedTextField(
-                        value = markLabel,
-                        onValueChange = { markLabel = it },
-                        label = { Text("标签（必填）") },
-                        placeholder = { Text("例如：出门买东西") },
-                        singleLine = true,
-                        enabled = !markBusy,
-                    )
-                    OutlinedTextField(
-                        value = markNote,
-                        onValueChange = { markNote = it },
-                        label = { Text("备注（可选）") },
-                        singleLine = true,
-                        enabled = !markBusy,
-                    )
+            if (requiresRemote && !canRemote) {
+                scope.launch { snackbarHostState.showSnackbar(message = "需要登录后才能修改已同步的标记") }
+                return
+            }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = "记录当前位置",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Checkbox(
-                            checked = markUseLocation,
-                            onCheckedChange = { markUseLocation = it },
-                            enabled = !markBusy,
-                        )
-                    }
+            markBusy = true
+            markError = null
 
-                    if (markError != null) {
-                        Text(
-                            text = markError ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    enabled = !markBusy,
-                    onClick = { createMark() },
-                ) {
-                    Text(if (markBusy) "处理中…" else "确定")
-                }
-            },
-            dismissButton = {
-                FilledTonalButton(
-                    enabled = !markBusy,
-                    onClick = {
-                        showMarkDialog = false
-                        markError = null
+            if (requiresRemote) {
+                val payload = JSONObject()
+                    .put("location_name", normalized)
+                    .put("manual_note", note ?: JSONObject.NULL)
+
+                val now = Instant.now().toString()
+                syncManager.lifeEventUpdateAsync(
+                    eventId = mark.eventId,
+                    payload = payload,
+                    onDone = { _ ->
+                        updateLocal(normalized, note, markRemoteSyncedAt = now)
                     },
-                ) {
-                    Text("取消")
-                }
+                    onError = { t ->
+                        markBusy = false
+                        markError = t.message ?: t.toString()
+                    },
+                )
+            } else {
+                updateLocal(normalized, note, markRemoteSyncedAt = null)
+            }
+        }
+
+        fun deleteMark() {
+            if (requiresRemote && !canRemote) {
+                scope.launch { snackbarHostState.showSnackbar(message = "需要登录后才能删除已同步的标记") }
+                return
+            }
+
+            markBusy = true
+            markError = null
+
+            fun deleteLocal() {
+                lifeEventRepository.deleteByEventIdAsync(
+                    eventId = mark.eventId,
+                    onDone = {
+                        markBusy = false
+                        selectedMarkId = null
+                        selectedMark = null
+                        refreshMarksToday()
+                        if (route == RecordsRoute.MARKS_LIST) refreshMarksList()
+                        refreshActiveRangeMark()
+                        scope.launch { snackbarHostState.showSnackbar(message = "已删除") }
+                    },
+                    onError = { t ->
+                        markBusy = false
+                        markError = t.message ?: t.toString()
+                    },
+                )
+            }
+
+            if (requiresRemote) {
+                syncManager.lifeEventDeleteAsync(
+                    eventId = mark.eventId,
+                    onDone = { _ -> deleteLocal() },
+                    onError = { t ->
+                        markBusy = false
+                        markError = t.message ?: t.toString()
+                    },
+                )
+            } else {
+                deleteLocal()
+            }
+        }
+
+        fun endRange() {
+            val active = activeRangeMark
+            if (active == null || active.eventId != mark.eventId) {
+                scope.launch { snackbarHostState.showSnackbar(message = "该区间标记已不在进行中") }
+                return
+            }
+            endActiveRangeMark()
+        }
+
+        MarkDetailScreen(
+            mark = mark,
+            busy = markBusy,
+            error = markError,
+            onBack = {
+                selectedMarkId = null
+                selectedMark = null
+                markError = null
             },
+            onSave = { label, note -> saveMark(label, note) },
+            onDelete = { deleteMark() },
+            onEndRange = { endRange() },
         )
+        return
+    }
+
+    if (route == RecordsRoute.MARKS_LIST) {
+        MarksListScreen(
+            range = marksRange,
+            loading = marksListLoading,
+            error = marksListError,
+            marks = marksList,
+            onRangeChange = { marksRange = it },
+            onBack = { route = RecordsRoute.HOME },
+            onRefresh = { refreshMarksList() },
+            onSelect = { selectedMarkId = it.eventId },
+        )
+        return
     }
 
     if (selectedSession != null) {
@@ -643,22 +1124,120 @@ fun RecordsScreen() {
         return
     }
 
+    val todayStepsText = todaySystemSteps?.toString() ?: "--"
+    val todayDistanceM = remember(todayPoints) { computeDistanceMeters(todayPoints) }
+    val todayActiveMinutes = remember(todayPoints) { computeActiveMinutes(todayPoints, zone) }
+
+    val stepsHelper =
+        when {
+            systemStepsSdkStatus == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "需要安装/更新"
+            systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE -> "不可用"
+            !systemStepsPermissionGranted -> "需授权（Health Connect）"
+            todaySystemStepsLoading -> "系统加载中…"
+            !todaySystemStepsError.isNullOrBlank() -> "系统读取失败"
+            else -> "系统（全天）"
+        }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(WfDimens.PagePadding),
+        verticalArrangement = Arrangement.spacedBy(WfDimens.ItemSpacing),
     ) {
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = stringResource(com.wayfarer.android.R.string.tracking_subtitle),
-                        style = MaterialTheme.typography.titleLarge,
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    WfKpiCard(
+                        label = "今日步数",
+                        value = todayStepsText,
+                        helper = stepsHelper,
+                        modifier = Modifier.weight(1f),
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row {
+                    WfKpiCard(
+                        label = "今日距离",
+                        value = formatDistance(todayDistanceM),
+                        helper = "Wayfarer 记录",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                WfKpiCard(
+                    label = "今日活跃时长",
+                    value = formatActiveMinutes(todayActiveMinutes),
+                    helper = "Wayfarer 估算（按分钟：步数>0 或 speed≥0.8m/s）",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                when {
+                    systemStepsSdkStatus == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> {
+                        WfEmptyState(
+                            title = "开启系统步数",
+                            body = "需要安装/更新 Health Connect 才能读取系统全天步数（与你手机计步一致）。",
+                            action = {
+                                FilledTonalButton(onClick = { openHealthConnectInstallOrUpdate() }) {
+                                    Text("安装/更新")
+                                }
+                            },
+                        )
+                    }
+
+                    systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE -> {
+                        WfEmptyState(
+                            title = "系统步数不可用",
+                            body = "当前设备不支持 Health Connect，无法读取系统全天步数。",
+                            action = {
+                                FilledTonalButton(onClick = { openHealthConnect() }) {
+                                    Text("查看")
+                                }
+                            },
+                        )
+                    }
+
+                    !systemStepsPermissionGranted -> {
+                        WfEmptyState(
+                            title = "开启系统步数",
+                            body = "授权后，“今日步数”将显示系统全天步数（与你手机计步一致）。",
+                            action = {
+                                FilledTonalButton(onClick = { openHealthConnect() }) {
+                                    Text("打开 Health Connect")
+                                }
+                            },
+                        )
+                    }
+                }
+
+                if (!todayPointsError.isNullOrBlank()) {
+                    Text(
+                        text = "今日数据读取失败：${todayPointsError ?: ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (!todaySystemStepsError.isNullOrBlank()) {
+                    Text(
+                        text = "系统步数读取失败：${todaySystemStepsError ?: ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+
+        item {
+            WfCard {
+                Column(
+                    modifier = Modifier.padding(WfDimens.CardPadding),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val statusTitle = if (isTracking) "正在记录" else "未开始记录"
+                    WfSectionHeader(
+                        title = "记录",
+                        subtitle = statusTitle,
+                        trailing = {
+                            FilledTonalButton(enabled = !markBusy, onClick = { showQuickMarkSheet = true }) {
+                                Text("快速标记")
+                            }
+                        },
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
                             onClick = {
                                 if (hasLocationPermission(context)) {
@@ -680,8 +1259,6 @@ fun RecordsScreen() {
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(12.dp))
-
                         FilledTonalButton(
                             onClick = {
                                 TrackingServiceController.stop(context)
@@ -694,184 +1271,108 @@ fun RecordsScreen() {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            enabled = !markBusy,
-                            onClick = { showMarkDialog = true },
-                        ) {
-                            Text("标记")
+                    if (!locationGranted || !activityGranted || !gpsEnabled) {
+                        val hint = buildString {
+                            append("提示：")
+                            if (!locationGranted) append("未授权定位；")
+                            if (!activityGranted) append("未授权活动识别；")
+                            if (!gpsEnabled) append("GPS 未开启；")
+                            append("可在“设置 → 权限”中查看。")
                         }
-
-                        val active = activeRangeMark
-                        if (active != null) {
-                            FilledTonalButton(
-                                enabled = !markBusy,
-                                onClick = { endActiveRangeMark() },
-                            ) {
-                                Text("结束标记")
-                            }
-                        }
+                        Text(
+                            text = hint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
 
                     val active = activeRangeMark
                     if (active != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "标记中：${active.label}",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "区间标记中：${active.label}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            FilledTonalButton(
+                                enabled = !markBusy,
+                                onClick = { endActiveRangeMark() },
+                            ) {
+                                Text("结束区间")
+                            }
+                        }
                         Text(
                             text = "开始：${formatRecordedAt(active.startAtUtc)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+            }
+        }
 
-                    if (markError != null && !showMarkDialog) {
-                        Spacer(modifier = Modifier.height(10.dp))
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                WfSectionHeader(
+                    title = "今日标记",
+                    subtitle =
+                        when {
+                            marksTodayLoading -> "读取中…"
+                            marksTodayError != null -> "加载失败"
+                            else -> "共 ${marksToday.size} 条"
+                        },
+                    trailing = {
+                        FilledTonalButton(
+                            onClick = {
+                                marksRange = MarksRange.TODAY
+                                route = RecordsRoute.MARKS_LIST
+                            },
+                        ) {
+                            Text("全部")
+                        }
+                    },
+                )
+
+                when {
+                    marksTodayLoading -> {
                         Text(
-                            text = markError ?: "",
+                            text = stringResource(com.wayfarer.android.R.string.track_stats_loading),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    marksTodayError != null -> {
+                        Text(
+                            text = marksTodayError ?: "",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
 
-                    if (!locationGranted) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = stringResource(com.wayfarer.android.R.string.tracking_permission_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    marksToday.isEmpty() -> {
+                        WfEmptyState(
+                            title = "暂无标记",
+                            body = "用「快速标记」随手记录时间点或区间，后续在统计里可下钻查看。",
                         )
                     }
-                }
-            }
-        }
 
-        item {
-            OutlinedCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        text = stringResource(com.wayfarer.android.R.string.tracking_status_card_title),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-
-                    StatusRow(
-                        label = stringResource(com.wayfarer.android.R.string.tracking_status_service),
-                        value =
-                            if (isTracking) {
-                                stringResource(com.wayfarer.android.R.string.tracking_service_running)
-                            } else {
-                                stringResource(com.wayfarer.android.R.string.tracking_service_stopped)
-                            },
-                        valueTone = if (isTracking) StatusTone.Good else StatusTone.Muted,
-                    )
-
-                    StatusRow(
-                        label = stringResource(com.wayfarer.android.R.string.tracking_status_location_permission),
-                        value =
-                            if (locationGranted) {
-                                stringResource(com.wayfarer.android.R.string.status_granted)
-                            } else {
-                                stringResource(com.wayfarer.android.R.string.status_denied)
-                            },
-                        valueTone = if (locationGranted) StatusTone.Good else StatusTone.Bad,
-                    )
-
-                    StatusRow(
-                        label = stringResource(com.wayfarer.android.R.string.tracking_status_activity_permission),
-                        value =
-                            if (activityGranted) {
-                                stringResource(com.wayfarer.android.R.string.status_granted)
-                            } else {
-                                stringResource(com.wayfarer.android.R.string.status_denied)
-                            },
-                        valueTone = if (activityGranted) StatusTone.Good else StatusTone.Bad,
-                    )
-
-                    StatusRow(
-                        label = stringResource(com.wayfarer.android.R.string.tracking_status_gps),
-                        value =
-                            if (gpsEnabled) {
-                                stringResource(com.wayfarer.android.R.string.status_enabled)
-                            } else {
-                                stringResource(com.wayfarer.android.R.string.status_disabled)
-                            },
-                        valueTone = if (gpsEnabled) StatusTone.Good else StatusTone.Bad,
-                    )
-                }
-            }
-        }
-
-        item {
-            OutlinedCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = stringResource(com.wayfarer.android.R.string.track_stats_title),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Button(onClick = { refreshAll() }) {
-                            Text(stringResource(com.wayfarer.android.R.string.track_stats_refresh))
-                        }
-                    }
-
-                    when {
-                        statsLoading -> {
-                            Text(
-                                text = stringResource(com.wayfarer.android.R.string.track_stats_loading),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    else -> {
+                        val preview = marksToday.take(3)
+                        for (m in preview) {
+                            MarkCard(
+                                mark = m,
+                                onClick = { selectedMarkId = m.eventId },
                             )
                         }
 
-                        statsError != null -> {
-                            Text(
-                                text = statsError ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-
-                        else -> {
-                            val resolved = stats
-                            if (resolved == null || resolved.totalCount <= 0L) {
-                                Text(
-                                    text = stringResource(com.wayfarer.android.R.string.track_stats_empty),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            } else {
-                                StatusRow(
-                                    label = stringResource(com.wayfarer.android.R.string.track_stats_total),
-                                    value = resolved.totalCount.toString(),
-                                    valueTone = StatusTone.Muted,
-                                )
-                                StatusRow(
-                                    label = stringResource(com.wayfarer.android.R.string.track_stats_pending_sync),
-                                    value = resolved.pendingSyncCount.toString(),
-                                    valueTone =
-                                        if (resolved.pendingSyncCount == 0L) {
-                                            StatusTone.Good
-                                        } else {
-                                            StatusTone.Muted
-                                        },
-                                )
-                                StatusRow(
-                                    label = stringResource(com.wayfarer.android.R.string.track_stats_latest),
-                                    value = formatRecordedAt(resolved.latestRecordedAtUtc),
-                                    valueTone = StatusTone.Muted,
-                                )
+                        if (marksToday.size > preview.size) {
+                            FilledTonalButton(
+                                onClick = {
+                                    marksRange = MarksRange.TODAY
+                                    route = RecordsRoute.MARKS_LIST
+                                },
+                            ) {
+                                Text("查看更多（${marksToday.size}）")
                             }
                         }
                     }
@@ -880,9 +1381,158 @@ fun RecordsScreen() {
         }
 
         item {
-            Text(
-                text = stringResource(com.wayfarer.android.R.string.records_sessions),
-                style = MaterialTheme.typography.titleMedium,
+            WfSectionHeader(
+                title = "状态与权限（排障）",
+                subtitle = if (showSystemStatus) "已展开" else "已折叠",
+                trailing = {
+                    FilledTonalButton(onClick = { showSystemStatus = !showSystemStatus }) {
+                        Text(if (showSystemStatus) "收起" else "展开")
+                    }
+                },
+            )
+        }
+
+        if (showSystemStatus) {
+            item {
+                OutlinedCard {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = stringResource(com.wayfarer.android.R.string.tracking_status_card_title),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+
+                        StatusRow(
+                            label = stringResource(com.wayfarer.android.R.string.tracking_status_service),
+                            value =
+                                if (isTracking) {
+                                    stringResource(com.wayfarer.android.R.string.tracking_service_running)
+                                } else {
+                                    stringResource(com.wayfarer.android.R.string.tracking_service_stopped)
+                                },
+                            valueTone = if (isTracking) StatusTone.Good else StatusTone.Muted,
+                        )
+
+                        StatusRow(
+                            label = stringResource(com.wayfarer.android.R.string.tracking_status_location_permission),
+                            value =
+                                if (locationGranted) {
+                                    stringResource(com.wayfarer.android.R.string.status_granted)
+                                } else {
+                                    stringResource(com.wayfarer.android.R.string.status_denied)
+                                },
+                            valueTone = if (locationGranted) StatusTone.Good else StatusTone.Bad,
+                        )
+
+                        StatusRow(
+                            label = stringResource(com.wayfarer.android.R.string.tracking_status_activity_permission),
+                            value =
+                                if (activityGranted) {
+                                    stringResource(com.wayfarer.android.R.string.status_granted)
+                                } else {
+                                    stringResource(com.wayfarer.android.R.string.status_denied)
+                                },
+                            valueTone = if (activityGranted) StatusTone.Good else StatusTone.Bad,
+                        )
+
+                        StatusRow(
+                            label = stringResource(com.wayfarer.android.R.string.tracking_status_gps),
+                            value =
+                                if (gpsEnabled) {
+                                    stringResource(com.wayfarer.android.R.string.status_enabled)
+                                } else {
+                                    stringResource(com.wayfarer.android.R.string.status_disabled)
+                                },
+                            valueTone = if (gpsEnabled) StatusTone.Good else StatusTone.Bad,
+                        )
+                    }
+                }
+            }
+
+            item {
+                OutlinedCard {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = stringResource(com.wayfarer.android.R.string.track_stats_title),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Button(onClick = { refreshAll() }) {
+                                Text(stringResource(com.wayfarer.android.R.string.track_stats_refresh))
+                            }
+                        }
+
+                        when {
+                            statsLoading -> {
+                                Text(
+                                    text = stringResource(com.wayfarer.android.R.string.track_stats_loading),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+
+                            statsError != null -> {
+                                Text(
+                                    text = statsError ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+
+                            else -> {
+                                val resolved = stats
+                                if (resolved == null || resolved.totalCount <= 0L) {
+                                    Text(
+                                        text = stringResource(com.wayfarer.android.R.string.track_stats_empty),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                } else {
+                                    StatusRow(
+                                        label = stringResource(com.wayfarer.android.R.string.track_stats_total),
+                                        value = resolved.totalCount.toString(),
+                                        valueTone = StatusTone.Muted,
+                                    )
+                                    StatusRow(
+                                        label = stringResource(com.wayfarer.android.R.string.track_stats_pending_sync),
+                                        value = resolved.pendingSyncCount.toString(),
+                                        valueTone =
+                                            if (resolved.pendingSyncCount == 0L) {
+                                                StatusTone.Good
+                                            } else {
+                                                StatusTone.Muted
+                                            },
+                                    )
+                                    StatusRow(
+                                        label = stringResource(com.wayfarer.android.R.string.track_stats_latest),
+                                        value = formatRecordedAt(resolved.latestRecordedAtUtc),
+                                        valueTone = StatusTone.Muted,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            WfSectionHeader(
+                title = "记录会话",
+                subtitle = "点击卡片查看详情",
+                trailing = {
+                    Button(onClick = { refreshSessions() }) {
+                        Text("刷新")
+                    }
+                },
             )
         }
 
@@ -915,14 +1565,32 @@ fun RecordsScreen() {
                 }
             }
         } else {
-            items(
-                items = sessions,
-                key = { it.sessionId },
-            ) { session ->
-                SessionCard(
-                    session = session,
-                    onClick = { selectedSession = session },
-                )
+            val grouped =
+                sessions.groupBy { s ->
+                    runCatching {
+                        val end = Instant.parse(s.endUtc)
+                        end.atZone(zone).toLocalDate()
+                    }.getOrNull()
+                }
+            val dayKeys = grouped.keys.filterNotNull().sortedDescending()
+
+            for (day in dayKeys) {
+                item {
+                    Text(
+                        text = day.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                val daySessions = grouped[day].orEmpty()
+                items(
+                    items = daySessions,
+                    key = { it.sessionId },
+                ) { session ->
+                    SessionCard(
+                        session = session,
+                        onClick = { selectedSession = session },
+                    )
+                }
             }
         }
     }
@@ -1033,47 +1701,7 @@ private fun buildSessions(pointsAsc: List<TrackPointEntity>): List<RecordSession
     return summaries.sortedByDescending { it.endUtc }
 }
 
-private fun computeDistanceMeters(points: List<TrackPointEntity>): Double {
-    if (points.size < 2) return 0.0
-
-    var sum = 0.0
-    var prev = points.first()
-    for (i in 1 until points.size) {
-        val cur = points[i]
-        sum += haversineMeters(
-            prev.latitudeWgs84,
-            prev.longitudeWgs84,
-            cur.latitudeWgs84,
-            cur.longitudeWgs84,
-        )
-        prev = cur
-    }
-    return sum
-}
-
-private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-    val r = 6_371_000.0
-    val dLat = Math.toRadians(lat2 - lat1)
-    val dLon = Math.toRadians(lon2 - lon1)
-    val a =
-        sin(dLat / 2) * sin(dLat / 2) +
-            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-            sin(dLon / 2) * sin(dLon / 2)
-    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return r * c
-}
-
 private fun Double.format6(): String = String.format("%.6f", this)
-
-private fun formatDistance(meters: Double): String {
-    val m = meters.coerceAtLeast(0.0)
-    return if (m < 1000.0) {
-        "${m.toInt()} m"
-    } else {
-        val km = m / 1000.0
-        String.format("%.2f km", km)
-    }
-}
 
 private fun formatDuration(seconds: Long): String {
     val s = seconds.coerceAtLeast(0L)

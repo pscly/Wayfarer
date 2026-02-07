@@ -74,6 +74,28 @@ class LifeEventRepository(
         }
     }
 
+    fun getByEventIdAsync(
+        eventId: String,
+        onResult: (LifeEventEntity?) -> Unit,
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching { dao.getByEventId(userId = resolvedUserId(), eventId = eventId) }
+            mainHandler.post { result.fold(onResult, onError) }
+        }
+    }
+
+    fun deleteByEventIdAsync(
+        eventId: String,
+        onDone: (Int) -> Unit = {},
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching { dao.deleteByEventId(userId = resolvedUserId(), eventId = eventId) }
+            mainHandler.post { result.fold(onDone, onError) }
+        }
+    }
+
     fun clearAllAsync(
         onDone: () -> Unit,
         onError: (Throwable) -> Unit = {},
@@ -88,4 +110,3 @@ class LifeEventRepository(
         private const val USER_ID_LOCAL = "local"
     }
 }
-

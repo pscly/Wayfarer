@@ -224,6 +224,37 @@ class WayfarerSyncManager(
         }
     }
 
+    fun lifeEventUpdateAsync(
+        eventId: String,
+        payload: JSONObject,
+        onDone: (JSONObject) -> Unit = {},
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                authenticated { token ->
+                    api.lifeEventUpdate(accessToken = token, id = eventId, payload = payload)
+                }
+            }
+            mainHandler.post { result.fold(onDone, onError) }
+        }
+    }
+
+    fun lifeEventDeleteAsync(
+        eventId: String,
+        onDone: (JSONObject) -> Unit = {},
+        onError: (Throwable) -> Unit = {},
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                authenticated { token ->
+                    api.lifeEventDelete(accessToken = token, id = eventId)
+                }
+            }
+            mainHandler.post { result.fold(onDone, onError) }
+        }
+    }
+
     private fun <T> authenticated(block: (accessToken: String) -> T): T {
         val access = AuthStore.readAccessToken(appContext)
         if (!access.isNullOrBlank()) {

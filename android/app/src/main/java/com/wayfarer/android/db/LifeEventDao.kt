@@ -73,6 +73,19 @@ interface LifeEventDao {
     )
     fun rangeOverlappingByUser(userId: String, startUtc: String, endUtc: String, limit: Int): List<LifeEventEntity>
 
+    @Query(
+        "SELECT * FROM life_events_local " +
+            "WHERE user_id = :userId AND event_id = :eventId " +
+            "LIMIT 1",
+    )
+    fun getByEventId(userId: String, eventId: String): LifeEventEntity?
+
+    @Query(
+        "DELETE FROM life_events_local " +
+            "WHERE user_id = :userId AND event_id = :eventId",
+    )
+    fun deleteByEventId(userId: String, eventId: String): Int
+
     @Query("DELETE FROM life_events_local")
     fun deleteAll(): Int
 }

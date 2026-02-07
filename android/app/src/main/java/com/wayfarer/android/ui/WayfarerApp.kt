@@ -16,7 +16,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +42,7 @@ import com.wayfarer.android.ui.auth.AuthGateScreen
 import com.wayfarer.android.ui.auth.AuthGateStore
 import com.wayfarer.android.ui.sync.SyncBanner
 import com.wayfarer.android.ui.sync.rememberSyncSnapshot
+import com.wayfarer.android.ui.components.LocalWfSnackbarHostState
 
 private enum class AppTab {
     RECORDS,
@@ -117,6 +121,7 @@ private fun WayfarerAppShell(
 
     val context = LocalContext.current
     val syncSnapshot = rememberSyncSnapshot(context)
+    val snackbarHostState = remember { SnackbarHostState() }
     val userId = AuthStore.readUserId(context)
     val refresh = AuthStore.readRefreshToken(context)
     val isLoggedIn = !userId.isNullOrBlank() && !refresh.isNullOrBlank()
@@ -135,57 +140,59 @@ private fun WayfarerAppShell(
             )
         }
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                navigationIcon = {
-                    val canBack = tab == AppTab.SETTINGS && settingsRoute != SettingsRoute.HOME
-                    if (canBack) {
-                        IconButton(onClick = { settingsRoute = SettingsRoute.HOME }) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+    CompositionLocalProvider(LocalWfSnackbarHostState provides snackbarHostState) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+            topBar = {
+                CenterAlignedTopAppBar(
+                    navigationIcon = {
+                        val canBack = tab == AppTab.SETTINGS && settingsRoute != SettingsRoute.HOME
+                        if (canBack) {
+                            IconButton(onClick = { settingsRoute = SettingsRoute.HOME }) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                            }
                         }
-                    }
-                },
-                title = {
-                    Text(
-                        text = title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleLarge,
+                    },
+                    title = {
+                        Text(
+                            text = title,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                    },
+                )
+            },
+            bottomBar = {
+                NavigationBar(tonalElevation = 0.dp) {
+                    NavigationBarItem(
+                        selected = tab == AppTab.RECORDS,
+                        onClick = { tab = AppTab.RECORDS },
+                        icon = { Icon(Icons.Rounded.LocationOn, contentDescription = null) },
+                        label = { Text(stringResource(com.wayfarer.android.R.string.tab_tracks)) },
                     )
-                },
-            )
-        },
-        bottomBar = {
-            NavigationBar(tonalElevation = 0.dp) {
-                NavigationBarItem(
-                    selected = tab == AppTab.RECORDS,
-                    onClick = { tab = AppTab.RECORDS },
-                    icon = { Icon(Icons.Rounded.LocationOn, contentDescription = null) },
-                    label = { Text(stringResource(com.wayfarer.android.R.string.tab_tracks)) },
-                )
-                NavigationBarItem(
-                    selected = tab == AppTab.MAP,
-                    onClick = { tab = AppTab.MAP },
-                    icon = { Icon(Icons.Rounded.Map, contentDescription = null) },
-                    label = { Text(stringResource(com.wayfarer.android.R.string.tab_map)) },
-                )
-                NavigationBarItem(
-                    selected = tab == AppTab.STATS,
-                    onClick = { tab = AppTab.STATS },
-                    icon = { Icon(Icons.Rounded.BarChart, contentDescription = null) },
-                    label = { Text(stringResource(com.wayfarer.android.R.string.tab_stats)) },
-                )
-                NavigationBarItem(
-                    selected = tab == AppTab.SETTINGS,
-                    onClick = { tab = AppTab.SETTINGS },
-                    icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
-                    label = { Text(stringResource(com.wayfarer.android.R.string.tab_settings)) },
-                )
-            }
-        },
-            ) { paddingValues ->
-        when (tab) {
+                    NavigationBarItem(
+                        selected = tab == AppTab.MAP,
+                        onClick = { tab = AppTab.MAP },
+                        icon = { Icon(Icons.Rounded.Map, contentDescription = null) },
+                        label = { Text(stringResource(com.wayfarer.android.R.string.tab_map)) },
+                    )
+                    NavigationBarItem(
+                        selected = tab == AppTab.STATS,
+                        onClick = { tab = AppTab.STATS },
+                        icon = { Icon(Icons.Rounded.BarChart, contentDescription = null) },
+                        label = { Text(stringResource(com.wayfarer.android.R.string.tab_stats)) },
+                    )
+                    NavigationBarItem(
+                        selected = tab == AppTab.SETTINGS,
+                        onClick = { tab = AppTab.SETTINGS },
+                        icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                        label = { Text(stringResource(com.wayfarer.android.R.string.tab_settings)) },
+                    )
+                }
+            },
+        ) { paddingValues ->
+            when (tab) {
             AppTab.RECORDS -> androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier.padding(paddingValues),
             ) {
@@ -290,6 +297,7 @@ private fun WayfarerAppShell(
                     onRouteChange = { settingsRoute = it },
                     onAuthStateChanged = onAuthStateChanged,
                 )
+            }
             }
         }
     }

@@ -329,6 +329,18 @@ class WayfarerApiClient(
         return requestJson("POST", "/v1/life-events", accessToken = accessToken, body = payload)
     }
 
+    fun lifeEventUpdate(accessToken: String, id: String, payload: JSONObject): JSONObject {
+        val eventId = id.trim()
+        require(eventId.isNotBlank()) { "Missing life event id" }
+        return requestJson("PUT", "/v1/life-events/$eventId", accessToken = accessToken, body = payload)
+    }
+
+    fun lifeEventDelete(accessToken: String, id: String): JSONObject {
+        val eventId = id.trim()
+        require(eventId.isNotBlank()) { "Missing life event id" }
+        return requestJson("DELETE", "/v1/life-events/$eventId", accessToken = accessToken)
+    }
+
     fun lifeEventsList(
         accessToken: String,
         startUtc: String? = null,

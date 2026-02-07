@@ -1,5 +1,8 @@
 package com.wayfarer.android.ui
 
+import android.content.Intent
+import android.net.Uri
+import androidx.health.connect.client.HealthConnectClient
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -22,10 +25,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -36,23 +41,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import com.wayfarer.android.api.ApiException
-import com.wayfarer.android.api.AuthStore
-import com.wayfarer.android.api.WayfarerApiClient
-import com.wayfarer.android.api.toUserMessageZh
 import com.wayfarer.android.db.LifeEventEntity
 import com.wayfarer.android.db.TrackPointEntity
+import com.wayfarer.android.health.SystemStepsRepository
 import com.wayfarer.android.tracking.LifeEventRepository
-import com.wayfarer.android.tracking.StatsStepsRepository
 import com.wayfarer.android.tracking.TrackPointRepository
+import com.wayfarer.android.ui.components.wfSnackbarHostStateOrThrow
 import com.wayfarer.android.ui.sync.rememberSyncSnapshot
+import com.wayfarer.android.ui.util.openHealthConnectManageData
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import java.time.Instant
 import java.time.LocalDate
-import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -60,21 +65,26 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlinx.coroutines.launch
 
 private data class DayStat(
     val day: LocalDate,
     val pointCount: Int,
     val distanceM: Double,
-    val steps: Long,
+    val steps: Long?,
+    val activeMinutes: Int,
 )
 
 @Composable
 fun StatsScreen() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val snackbarHostState = wfSnackbarHostStateOrThrow()
+    val scope = rememberCoroutineScope()
     val syncSnapshot = rememberSyncSnapshot(context)
     val repository = remember { TrackPointRepository(context) }
     val lifeEventRepository = remember { LifeEventRepository(context) }
-    val stepsRepository = remember { StatsStepsRepository(context) }
+    val systemStepsRepository = remember { SystemStepsRepository(context) }
     val zone = remember { ZoneId.systemDefault() }
 
     var windowDays by rememberSaveable { mutableStateOf(7) }
@@ -84,38 +94,67 @@ fun StatsScreen() {
     var stats by remember { mutableStateOf<List<DayStat>>(emptyList()) }
     var pointsAsc by remember { mutableStateOf<List<TrackPointEntity>>(emptyList()) }
 
-    var remoteStepsLoading by remember { mutableStateOf(false) }
-    var remoteStepsError by remember { mutableStateOf<String?>(null) }
+    // System all-day steps (Health Connect).
+    var systemStepsSdkStatus by remember { mutableStateOf(systemStepsRepository.sdkStatus()) }
+    var systemStepsPermissionGranted by remember { mutableStateOf(false) }
+    var systemStepsLoading by remember { mutableStateOf(false) }
+    var systemStepsError by remember { mutableStateOf<String?>(null) }
 
     var marksLoading by remember { mutableStateOf(false) }
     var marksError by remember { mutableStateOf<String?>(null) }
     var marks by remember { mutableStateOf<List<LifeEventEntity>>(emptyList()) }
 
-    var remoteHourlyLoading by remember { mutableStateOf(false) }
-    var remoteHourlyError by remember { mutableStateOf<String?>(null) }
-    var remoteHourlyBuckets by remember { mutableStateOf<LongArray?>(null) }
+    var systemHourlyLoading by remember { mutableStateOf(false) }
+    var systemHourlyError by remember { mutableStateOf<String?>(null) }
+    var systemHourlyBuckets by remember { mutableStateOf<LongArray?>(null) }
 
     var dailyLoadSeq by remember { mutableStateOf(0) }
     var hourlyLoadSeq by remember { mutableStateOf(0) }
 
-    fun hasAuth(): Boolean {
-        val access = AuthStore.readAccessToken(context)
-        val refresh = AuthStore.readRefreshToken(context)
-        return !access.isNullOrBlank() || !refresh.isNullOrBlank()
-    }
+    var systemStepsProviderPackage by remember { mutableStateOf(systemStepsRepository.providerPackageNameOrNull()) }
 
-    fun toUiError(t: Throwable): String {
-        return when (t) {
-            is ApiException -> t.toUserMessageZh()
-            else -> t.message ?: t.toString()
+    fun openHealthConnect() {
+        val provider = systemStepsRepository.providerPackageNameOrNull()
+        systemStepsProviderPackage = provider
+
+        val ok = openHealthConnectManageData(context = context, providerPackageName = provider)
+        if (!ok) {
+            scope.launch { snackbarHostState.showSnackbar("无法打开 Health Connect（请在系统设置中检查是否已安装）") }
         }
     }
 
-    fun currentTzOffsetMinutes(): Int? {
-        return runCatching {
-            val seconds = zone.rules.getOffset(Instant.now()).totalSeconds
-            seconds / 60
-        }.getOrNull()
+    fun openHealthConnectInstallOrUpdate() {
+        // Health Connect 默认 Provider 包名（官方）。
+        val providerPackage = "com.google.android.apps.healthdata"
+        val uriString = "market://details?id=$providerPackage&url=healthconnect%3A%2F%2Fonboarding"
+        val intent =
+            Intent(Intent.ACTION_VIEW).apply {
+                setPackage("com.android.vending")
+                data = Uri.parse(uriString)
+                putExtra("overlay", true)
+                putExtra("callerId", context.packageName)
+            }
+        runCatching { context.startActivity(intent) }.onFailure { openHealthConnect() }
+    }
+
+    fun refreshSystemStepsPermission() {
+        systemStepsSdkStatus = systemStepsRepository.sdkStatus()
+        systemStepsProviderPackage = systemStepsRepository.providerPackageNameOrNull()
+        if (systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE) {
+            systemStepsPermissionGranted = false
+            return
+        }
+        systemStepsRepository.hasPermissionsAsync(
+            onResult = { systemStepsPermissionGranted = it },
+            onError = { _ -> systemStepsPermissionGranted = false },
+        )
+    }
+
+    fun toSystemStepsError(t: Throwable): String {
+        return when (t) {
+            is SecurityException -> "未授权系统步数（请点击下方“开启系统步数”）"
+            else -> t.message ?: t.toString()
+        }
     }
 
     fun refresh() {
@@ -124,8 +163,9 @@ fun StatsScreen() {
 
         loading = true
         error = null
-        remoteStepsLoading = false
-        remoteStepsError = null
+        systemStepsSdkStatus = systemStepsRepository.sdkStatus()
+        systemStepsLoading = false
+        systemStepsError = null
 
         // Pull a generous amount; compute window in-memory.
         repository.latestPointsAsync(
@@ -139,42 +179,31 @@ fun StatsScreen() {
                 stats = localStats
                 loading = false
 
-                if (!hasAuth()) return@latestPointsAsync
+                if (systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE) return@latestPointsAsync
+                if (!systemStepsPermissionGranted) return@latestPointsAsync
 
                 val today = LocalDate.now(zone)
                 val startDay = today.minusDays((windowDays - 1).toLong())
-                val startUtc = startDay.atStartOfDay(zone).toInstant().toString()
-                val endUtc = Instant.now().toString()
-                val tz = zone.id
 
-                remoteStepsLoading = true
-                remoteStepsError = null
-                stepsRepository.dailyAsync(
-                    startUtc = startUtc,
-                    endUtc = endUtc,
-                    tz = tz,
-                    tzOffsetMinutes = currentTzOffsetMinutes(),
-                    onResult = { items ->
-                        if (dailyLoadSeq != mySeq) return@dailyAsync
-
-                        val stepsByDay = buildMap<LocalDate, Long> {
-                            for (it in items) {
-                                val day = runCatching { LocalDate.parse(it.day) }.getOrNull() ?: continue
-                                put(day, it.steps)
-                            }
-                        }
-
-                        // 仅覆盖步数，其他指标（距离/点数）仍使用本地数据。
+                systemStepsLoading = true
+                systemStepsError = null
+                systemStepsRepository.dailyStepsAsync(
+                    startDay = startDay,
+                    endDayInclusive = today,
+                    zone = zone,
+                    onResult = { stepsByDay ->
+                        if (dailyLoadSeq != mySeq) return@dailyStepsAsync
+                        // 仅覆盖步数，其他指标（距离/点数/活跃时长）仍使用本地数据。
                         stats = localStats.map { s ->
-                            val remote = stepsByDay[s.day]
-                            if (remote == null) s else s.copy(steps = remote)
+                            val sys = stepsByDay[s.day]
+                            if (sys == null) s else s.copy(steps = sys)
                         }
-                        remoteStepsLoading = false
+                        systemStepsLoading = false
                     },
                     onError = { t ->
-                        if (dailyLoadSeq != mySeq) return@dailyAsync
-                        remoteStepsError = toUiError(t)
-                        remoteStepsLoading = false
+                        if (dailyLoadSeq != mySeq) return@dailyStepsAsync
+                        systemStepsError = toSystemStepsError(t)
+                        systemStepsLoading = false
                     },
                 )
             },
@@ -186,19 +215,36 @@ fun StatsScreen() {
         )
     }
 
-    LaunchedEffect(windowDays, syncSnapshot.lastPullAtMs) {
+    LaunchedEffect(windowDays, syncSnapshot.lastPullAtMs, systemStepsPermissionGranted) {
         refresh()
     }
 
-    LaunchedEffect(selectedDayIso, syncSnapshot.lastPullAtMs) {
+    LaunchedEffect(Unit) {
+        refreshSystemStepsPermission()
+    }
+
+    // 从 Health Connect 授权/同步回来后，需要在 ON_RESUME 主动刷新（否则用户会误以为“点了没用”）。
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    refreshSystemStepsPermission()
+                    refresh()
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(selectedDayIso, syncSnapshot.lastPullAtMs, systemStepsPermissionGranted) {
         val dayIso = selectedDayIso ?: run {
             hourlyLoadSeq = hourlyLoadSeq + 1
             marks = emptyList()
             marksError = null
             marksLoading = false
-            remoteHourlyLoading = false
-            remoteHourlyError = null
-            remoteHourlyBuckets = null
+            systemHourlyLoading = false
+            systemHourlyError = null
+            systemHourlyBuckets = null
             return@LaunchedEffect
         }
 
@@ -228,37 +274,46 @@ fun StatsScreen() {
             },
         )
 
-        if (!hasAuth()) {
-            remoteHourlyLoading = false
-            remoteHourlyError = null
-            remoteHourlyBuckets = null
+        systemStepsSdkStatus = systemStepsRepository.sdkStatus()
+        if (systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE || !systemStepsPermissionGranted) {
+            systemHourlyLoading = false
+            systemHourlyError = null
+            systemHourlyBuckets = null
             return@LaunchedEffect
         }
 
-        remoteHourlyLoading = true
-        remoteHourlyError = null
-        remoteHourlyBuckets = null
-        stepsRepository.hourlyAsync(
-            startUtc = start.toString(),
-            endUtc = endInclusive.toString(),
-            tz = zone.id,
-            tzOffsetMinutes = currentTzOffsetMinutes(),
-            onResult = { items ->
-                if (hourlyLoadSeq != mySeq) return@hourlyAsync
-                remoteHourlyBuckets = computeHourlyStepsFromRemote(items, zone)
-                remoteHourlyLoading = false
+        systemHourlyLoading = true
+        systemHourlyError = null
+        systemHourlyBuckets = null
+        systemStepsRepository.hourlyStepsAsync(
+            day = day,
+            zone = zone,
+            onResult = { buckets ->
+                if (hourlyLoadSeq != mySeq) return@hourlyStepsAsync
+                systemHourlyBuckets = buckets
+                systemHourlyLoading = false
             },
             onError = { t ->
-                if (hourlyLoadSeq != mySeq) return@hourlyAsync
-                remoteHourlyError = toUiError(t)
-                remoteHourlyLoading = false
+                if (hourlyLoadSeq != mySeq) return@hourlyStepsAsync
+                systemHourlyError = toSystemStepsError(t)
+                systemHourlyLoading = false
             },
         )
     }
 
     val totalPoints = stats.sumOf { it.pointCount }
     val totalDistance = stats.sumOf { it.distanceM }
-    val totalSteps = stats.sumOf { it.steps }
+    val stepsAvailableDays = stats.count { it.steps != null }
+    val stepsMissingDays = stats.size - stepsAvailableDays
+    val totalStepsKnown = stats.sumOf { it.steps ?: 0L }
+    val totalStepsText = if (stepsAvailableDays == 0) "--" else totalStepsKnown.toString()
+    val totalStepsHelper =
+        when {
+            stepsAvailableDays == 0 -> "未读取到系统步数（Health Connect）"
+            stepsMissingDays > 0 -> "$windowDays 天窗口（缺失 $stepsMissingDays 天）"
+            else -> "$windowDays 天窗口"
+        }
+    val totalActiveMinutes = stats.sumOf { it.activeMinutes }
     val activeDays = stats.count { it.pointCount > 0 }
     val statsDesc = remember(stats) { stats.sortedByDescending { it.day } }
 
@@ -274,11 +329,14 @@ fun StatsScreen() {
                     instant.atZone(zone).toLocalDate() == day
                 }
             }
-        val localStepsByHour = computeHourlySteps(dayPoints, zone)
-        val stepsByHour = remoteHourlyBuckets ?: localStepsByHour
+        val stepsByHour = systemHourlyBuckets
         val distanceByHourM = computeHourlyDistanceMeters(dayPoints, zone)
-        val daySteps = stepsByHour.sum()
+        val dayStepsText =
+            stepsByHour?.sum()?.toString()
+                ?: stats.firstOrNull { it.day == day }?.steps?.toString()
+                ?: "--"
         val dayDistance = computeDistanceMeters(dayPoints)
+        val dayActiveMinutes = com.wayfarer.android.ui.util.computeActiveMinutes(dayPoints, zone)
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -296,19 +354,19 @@ fun StatsScreen() {
                             style = MaterialTheme.typography.titleLarge,
                         )
                         Text(
-                            text = "步数：$daySteps  ·  距离：${formatDistance(dayDistance)}",
+                            text = "步数：$dayStepsText  ·  距离：${formatDistance(dayDistance)}  ·  活跃：${com.wayfarer.android.ui.util.formatActiveMinutes(dayActiveMinutes)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (remoteHourlyLoading) {
+                        if (systemHourlyLoading) {
                             Text(
-                                text = "云端步数加载中…（按本地时区 ${zone.id} 分桶）",
+                                text = "系统步数加载中…（Health Connect · ${zone.id}）",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        } else if (!remoteHourlyError.isNullOrBlank()) {
+                        } else if (!systemHourlyError.isNullOrBlank()) {
                             Text(
-                                text = remoteHourlyError ?: "",
+                                text = systemHourlyError ?: "",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )
@@ -443,6 +501,11 @@ fun StatsScreen() {
                             label = stringResource(com.wayfarer.android.R.string.stats_last_30d),
                             onClick = { windowDays = 30 },
                         )
+                        WindowChip(
+                            selected = windowDays == 90,
+                            label = "近 90 天",
+                            onClick = { windowDays = 90 },
+                        )
                     }
 
                     if (loading) {
@@ -457,21 +520,69 @@ fun StatsScreen() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
-                    } else if (hasAuth() && remoteStepsLoading) {
+                    } else {
+                        when {
+                            systemStepsSdkStatus == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> {
+                                Text(
+                                    text = "需要安装/更新 Health Connect 才能读取系统全天步数。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                FilledTonalButton(onClick = { openHealthConnectInstallOrUpdate() }) {
+                                    Text("安装/更新")
+                                }
+                            }
+
+                            systemStepsSdkStatus != HealthConnectClient.SDK_AVAILABLE -> {
+                                Text(
+                                    text = "系统步数不可用（设备不支持 Health Connect）。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+
+                            !systemStepsPermissionGranted -> {
+                                Text(
+                                    text = "未授权系统步数：授权后步数将与手机系统计步一致（全天步数）。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                FilledTonalButton(
+                                    onClick = { openHealthConnect() },
+                                ) {
+                                    Text("打开 Health Connect")
+                                }
+                            }
+
+                            systemStepsLoading -> {
+                                Text(
+                                    text = "系统步数加载中…（Health Connect · ${zone.id}）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+
+                            !systemStepsError.isNullOrBlank() -> {
+                                Text(
+                                    text = "系统步数读取失败：${systemStepsError ?: ""}（步数暂不展示）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+
+                            else -> {
+                                Text(
+                                    text = "步数来自系统（Health Connect · 全天步数）；距离/点数来自 Wayfarer 记录",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+
+                    if (!loading && error == null) {
                         Text(
-                            text = "云端步数加载中…（按本地时区 ${zone.id} 分桶）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else if (hasAuth() && !remoteStepsError.isNullOrBlank()) {
-                        Text(
-                            text = "云端步数加载失败：${remoteStepsError ?: ""}（已回退到本地统计）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    } else if (hasAuth()) {
-                        Text(
-                            text = "步数来自云端聚合（本地日期口径）；距离/点数来自本机记录",
+                            text = "活跃时长口径：按分钟统计（步数>0 或 speed≥0.8m/s）",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -481,28 +592,33 @@ fun StatsScreen() {
         }
 
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    MetricRow(
-                        label = "步数",
-                        value = totalSteps.toString(),
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    com.wayfarer.android.ui.components.WfKpiCard(
+                        label = "总步数",
+                        value = totalStepsText,
+                        helper = totalStepsHelper,
+                        valueTone =
+                            if (stepsAvailableDays == 0) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        modifier = Modifier.weight(1f),
                     )
-                    MetricRow(
-                        label = stringResource(com.wayfarer.android.R.string.stats_distance),
+                    com.wayfarer.android.ui.components.WfKpiCard(
+                        label = "总距离",
                         value = formatDistance(totalDistance),
-                    )
-                    MetricRow(
-                        label = stringResource(com.wayfarer.android.R.string.stats_points),
-                        value = totalPoints.toString(),
-                    )
-                    MetricRow(
-                        label = stringResource(com.wayfarer.android.R.string.stats_active_days),
-                        value = activeDays.toString(),
+                        helper = "Wayfarer 记录",
+                        modifier = Modifier.weight(1f),
                     )
                 }
+                com.wayfarer.android.ui.components.WfKpiCard(
+                    label = "总活跃时长",
+                    value = com.wayfarer.android.ui.util.formatActiveMinutes(totalActiveMinutes),
+                    helper = "本机估算 · 活跃天数 $activeDays · 点数 $totalPoints",
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
 
@@ -567,25 +683,6 @@ private fun WindowChip(selected: Boolean, label: String, onClick: () -> Unit) {
         Button(onClick = onClick) {
             Text(label)
         }
-    }
-}
-
-@Composable
-private fun MetricRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
-        )
     }
 }
 
@@ -675,7 +772,7 @@ private fun DistanceBarChart(stats: List<DayStat>) {
 @Composable
 private fun StepsBarChart(stats: List<DayStat>) {
     val days = stats.takeLast(14) // keep chart readable
-    val max = days.maxOfOrNull { it.steps }?.coerceAtLeast(1L) ?: 1L
+    val max = days.mapNotNull { it.steps }.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     val accent = Color(0xFF34D399) // green-ish
 
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -686,8 +783,19 @@ private fun StepsBarChart(stats: List<DayStat>) {
     }
 
     val selected = selectedIndex?.let { idx -> days.getOrNull(idx) }
+    if (days.isEmpty() || days.all { it.steps == null }) {
+        com.wayfarer.android.ui.components.WfEmptyState(
+            title = "暂无系统步数",
+            body = "统计页的步数来自系统（Health Connect · 全天步数）。请先在上方授权“系统步数”，并确保数据源已同步。",
+        )
+        return
+    }
     Text(
-        text = selected?.let { "${it.day.format(DAY_LABEL)}：${it.steps} 步" } ?: "点击柱子查看具体步数",
+        text =
+            selected?.let {
+                val stepsText = it.steps?.toString() ?: "--"
+                "${it.day.format(DAY_LABEL)}：$stepsText 步"
+            } ?: "点击柱子查看具体步数",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -726,21 +834,33 @@ private fun StepsBarChart(stats: List<DayStat>) {
 
             var x = 0f
             for ((i, d) in days.withIndex()) {
-                val h = (d.steps.toDouble() / max.toDouble()).toFloat() * size.height
-                drawRoundRect(
-                    color = accent.copy(alpha = if (selectedIndex == i) 0.95f else 0.55f),
-                    topLeft = Offset(x, size.height - h),
-                    size = Size(barWidth, h),
-                    cornerRadius = CornerRadius(10f, 10f),
-                )
-                if (selectedIndex == i) {
+                val steps = d.steps
+                if (steps == null) {
+                    val placeholderH = 10f
                     drawRoundRect(
-                        color = accent,
-                        topLeft = Offset(x, size.height - h),
-                        size = Size(barWidth, h),
+                        color = accent.copy(alpha = 0.18f),
+                        topLeft = Offset(x, size.height - placeholderH),
+                        size = Size(barWidth, placeholderH),
                         cornerRadius = CornerRadius(10f, 10f),
                         style = Stroke(width = 2f),
                     )
+                } else {
+                    val h = (steps.toDouble() / max.toDouble()).toFloat() * size.height
+                    drawRoundRect(
+                        color = accent.copy(alpha = if (selectedIndex == i) 0.95f else 0.55f),
+                        topLeft = Offset(x, size.height - h),
+                        size = Size(barWidth, h),
+                        cornerRadius = CornerRadius(10f, 10f),
+                    )
+                    if (selectedIndex == i) {
+                        drawRoundRect(
+                            color = accent,
+                            topLeft = Offset(x, size.height - h),
+                            size = Size(barWidth, h),
+                            cornerRadius = CornerRadius(10f, 10f),
+                            style = Stroke(width = 2f),
+                        )
+                    }
                 }
                 x += barWidth + gap
             }
@@ -757,9 +877,22 @@ private fun StepsBarChart(stats: List<DayStat>) {
 
 @Composable
 private fun HourlyStepsBarChart(
-    stepsByHour: LongArray,
+    stepsByHour: LongArray?,
     distanceByHourM: DoubleArray,
 ) {
+    if (stepsByHour == null) {
+        Text(
+            text = "系统按小时步数未就绪（未授权/数据源未同步/暂不可用）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        com.wayfarer.android.ui.components.WfEmptyState(
+            title = "无法展示按小时步数",
+            body = "请先在上方授权“系统步数”，并在 Health Connect 中确认步数数据源已开启同步。",
+        )
+        return
+    }
     val max = stepsByHour.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     val accent = Color(0xFF34D399)
 
@@ -942,8 +1075,16 @@ private fun computeDailyStats(pointsAsc: List<TrackPointEntity>, windowDays: Int
     while (!d.isAfter(today)) {
         val pts = buckets[d].orEmpty()
         val dist = computeDistanceMeters(pts)
-        val steps = pts.sumOf { it.stepDelta ?: 0L }
-        out.add(DayStat(day = d, pointCount = pts.size, distanceM = dist, steps = steps))
+        val activeMinutes = com.wayfarer.android.ui.util.computeActiveMinutes(pts, zone)
+        out.add(
+            DayStat(
+                day = d,
+                pointCount = pts.size,
+                distanceM = dist,
+                steps = null,
+                activeMinutes = activeMinutes,
+            ),
+        )
         d = d.plusDays(1)
     }
     return out
@@ -956,16 +1097,6 @@ private fun computeHourlySteps(points: List<TrackPointEntity>, zone: ZoneId): Lo
         val hour = instant.atZone(zone).hour
         val delta = p.stepDelta ?: 0L
         if (hour in 0..23) out[hour] = out[hour] + delta
-    }
-    return out
-}
-
-private fun computeHourlyStepsFromRemote(items: List<WayfarerApiClient.StepsHourlyItem>, zone: ZoneId): LongArray {
-    val out = LongArray(24)
-    for (it in items) {
-        val t = runCatching { OffsetDateTime.parse(it.hourStart) }.getOrNull() ?: continue
-        val hour = t.atZoneSameInstant(zone).hour
-        if (hour in 0..23) out[hour] = out[hour] + it.steps
     }
     return out
 }
@@ -1002,6 +1133,7 @@ private fun DayStatCard(
     stat: DayStat,
     onClick: () -> Unit,
 ) {
+    val stepsText = stat.steps?.toString() ?: "--"
     OutlinedCard(onClick = onClick) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -1016,9 +1148,15 @@ private fun DayStatCard(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    text = "步数：${stat.steps}",
+                    text = "步数：$stepsText",
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = FontFamily.Monospace,
+                    color =
+                        if (stat.steps == null) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                 )
             }
             Row(
@@ -1036,6 +1174,11 @@ private fun DayStatCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Text(
+                text = "活跃：${com.wayfarer.android.ui.util.formatActiveMinutes(stat.activeMinutes)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 text = "查看详情",
                 style = MaterialTheme.typography.labelLarge,

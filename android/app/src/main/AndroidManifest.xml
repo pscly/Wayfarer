@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
 
     <application
         android:allowBackup="true"
@@ -21,6 +22,11 @@
         <meta-data
             android:name="com.amap.api.v2.apikey"
             android:value="${AMAP_API_KEY}" />
+
+        <!-- Health Connect is used for system all-day steps (requires user consent). -->
+        <meta-data
+            android:name="com.google.android.healthconnect.client.HealthConnectClient"
+            android:value="true" />
 
         <activity
             android:name=".MainActivity"
