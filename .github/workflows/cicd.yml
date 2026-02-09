@@ -111,7 +111,37 @@ jobs:
         working-directory: backend
     steps:
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@v4
+
+      - name: Fallback checkout (retry git fetch)
+        if: steps.checkout.outcome != 'success'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          rm -rf .git
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
+              break
+            fi
+            sleep $((i * 10))
+          done
+
+          if ! git cat-file -e "${GITHUB_SHA}^{commit}" >/dev/null 2>&1; then
+            echo "::error::Fallback checkout failed: cannot fetch target SHA after retries."
+            exit 1
+          fi
+
+          git checkout --detach "${GITHUB_SHA}"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -164,7 +194,37 @@ jobs:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
     steps:
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@v4
+
+      - name: Fallback checkout (retry git fetch)
+        if: steps.checkout.outcome != 'success'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          rm -rf .git
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
+              break
+            fi
+            sleep $((i * 10))
+          done
+
+          if ! git cat-file -e "${GITHUB_SHA}^{commit}" >/dev/null 2>&1; then
+            echo "::error::Fallback checkout failed: cannot fetch target SHA after retries."
+            exit 1
+          fi
+
+          git checkout --detach "${GITHUB_SHA}"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -195,7 +255,37 @@ jobs:
         working-directory: android
     steps:
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@v4
+
+      - name: Fallback checkout (retry git fetch)
+        if: steps.checkout.outcome != 'success'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          rm -rf .git
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
+              break
+            fi
+            sleep $((i * 10))
+          done
+
+          if ! git cat-file -e "${GITHUB_SHA}^{commit}" >/dev/null 2>&1; then
+            echo "::error::Fallback checkout failed: cannot fetch target SHA after retries."
+            exit 1
+          fi
+
+          git checkout --detach "${GITHUB_SHA}"
 
       - name: Setup JDK
         uses: actions/setup-java@v4
@@ -243,7 +333,37 @@ jobs:
       issues: write
     steps:
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@v4
+
+      - name: Fallback checkout (retry git fetch)
+        if: steps.checkout.outcome != 'success'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          rm -rf .git
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
+              break
+            fi
+            sleep $((i * 10))
+          done
+
+          if ! git cat-file -e "${GITHUB_SHA}^{commit}" >/dev/null 2>&1; then
+            echo "::error::Fallback checkout failed: cannot fetch target SHA after retries."
+            exit 1
+          fi
+
+          git checkout --detach "${GITHUB_SHA}"
 
       - name: Validate deploy host is public-reachable
         shell: bash
