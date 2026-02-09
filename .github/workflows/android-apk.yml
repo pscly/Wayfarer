@@ -223,5 +223,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.apk
+          # download-artifact 会保留上传时的目录结构（例如 dist/android/app/...）。
+          # 用递归 glob 确保能匹配到 APK，并在未匹配时直接失败，避免空 Release。
+          files: dist/**/*.apk
+          fail_on_unmatched_files: true
           generate_release_notes: true
