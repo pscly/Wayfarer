@@ -119,12 +119,35 @@ jobs:
           python-version: "3.13"
 
       - name: Setup uv
+        id: setup_uv
+        continue-on-error: true
         uses: astral-sh/setup-uv@v3
         with:
+          # Pin a specific version to avoid transient failures when resolving "latest".
+          version: "0.9.28"
           enable-cache: true
           cache-dependency-glob: |
             backend/pyproject.toml
             backend/uv.lock
+
+      - name: Fallback - install uv via pip
+        if: steps.setup_uv.outcome != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m pip install -U pip
+
+          # Retry to reduce flakes from transient network/provider issues.
+          for i in 1 2 3 4 5; do
+            python -m pip install --user "uv==0.9.28" && break
+            sleep $((i * 5))
+          done
+
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Show uv version
+        run: uv --version
 
       - name: Install dependencies
         run: uv sync --frozen
