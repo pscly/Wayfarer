@@ -189,9 +189,12 @@ val hasNonAsciiPath = rootProject.projectDir.absolutePath.any { it.code > 127 }
 
 gradle.taskGraph.whenReady(
     closureOf<TaskExecutionGraph> {
+        // Only block *real* release APK/AAB packaging tasks.
+        // Note: `./gradlew test` pulls in tasks like `assembleReleaseUnitTest`, which should NOT
+        // require signing (unit tests do not produce a distributable APK/AAB).
         val wantsReleaseApkOrAab = allTasks.any { task ->
             val n = task.name.lowercase()
-            (n.startsWith("assemble") || n.startsWith("bundle")) && n.contains("release")
+            (n.startsWith("assemble") && n.endsWith("release")) || (n.startsWith("bundle") && n.endsWith("release"))
         }
 
         if (wantsReleaseApkOrAab && !isReleaseSigningConfigured) {

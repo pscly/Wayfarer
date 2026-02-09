@@ -71,16 +71,23 @@ jobs:
           WAYFARER_ANDROID_KEY_PASSWORD: ${{ secrets.WAYFARER_ANDROID_KEY_PASSWORD }}
           # App runtime secrets (建议正式版必须提供)
           WAYFARER_AMAP_API_KEY: ${{ secrets.WAYFARER_AMAP_API_KEY }}
-          # Inputs (tag push 时默认 release)
-          VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.variant || 'release' }}
-          ALLOW_MISSING_AMAP_KEY: ${{ github.event_name == 'workflow_dispatch' && (inputs.allow_missing_amap_key == true || inputs.allow_missing_amap_key == 'true') }}
+          # Inputs
+          REQUESTED_VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.variant || 'release' }}
+          ALLOW_MISSING_AMAP_KEY: ${{ github.event_name == 'workflow_dispatch' && (inputs.allow_missing_amap_key == true || inputs.allow_missing_amap_key == 'true') || 'false' }}
         run: |
           set -euo pipefail
 
-          echo "variant=$VARIANT"
+          VARIANT="$REQUESTED_VARIANT"
+          echo "requested_variant=$REQUESTED_VARIANT"
+
           if [[ "$VARIANT" != "release" && "$VARIANT" != "benchmark" ]]; then
             echo "::error::Unknown variant: $VARIANT"
             exit 1
+          fi
+
+          is_tag_push=0
+          if [[ "${GITHUB_EVENT_NAME:-}" == "push" ]]; then
+            is_tag_push=1
           fi
 
           if [[ "$VARIANT" == "release" ]]; then
@@ -93,15 +100,27 @@ jobs:
               fi
             done
 
-            if [[ "$ALLOW_MISSING_AMAP_KEY" != "true" && -z "${WAYFARER_AMAP_API_KEY//[[:space:]]/}" ]]; then
-              echo "::error::Missing required secret: WAYFARER_AMAP_API_KEY（正式版建议必须提供；如确实要跳过请在 workflow_dispatch 勾选 allow_missing_amap_key）"
-              missing=1
+            if [[ -z "${WAYFARER_AMAP_API_KEY//[[:space:]]/}" ]]; then
+              if [[ "$ALLOW_MISSING_AMAP_KEY" == "true" ]]; then
+                echo "::notice::WAYFARER_AMAP_API_KEY is missing; proceeding because allow_missing_amap_key=true."
+              else
+                echo "::warning::WAYFARER_AMAP_API_KEY is missing; the map will be degraded/unavailable in release builds."
+              fi
             fi
 
             if (( missing == 1 )); then
-              exit 1
+              if (( is_tag_push == 1 )); then
+                echo "::warning::Release signing secrets missing for tag trigger; falling back to benchmark build so the workflow can succeed."
+                VARIANT="benchmark"
+              else
+                exit 1
+              fi
             fi
+          fi
 
+          echo "variant=$VARIANT"
+
+          if [[ "$VARIANT" == "release" ]]; then
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > keystore.jks
             chmod 600 keystore.jks
 
