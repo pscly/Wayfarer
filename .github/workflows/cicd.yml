@@ -21,7 +21,7 @@ jobs:
   validate-deploy-connectivity:
     runs-on: ubuntu-latest
     # Safety gate: deploy preflight runs only for main deploy paths.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.deploy == true || github.event.inputs.deploy == 'true')
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.deploy == true || github.event.inputs.deploy == 'true'))
     steps:
       - name: Validate deploy host is public-reachable
         shell: bash
@@ -185,7 +185,12 @@ jobs:
 
       - name: Install Android SDK packages
         run: |
+          set -euo pipefail
+          # 在 bash + pipefail 下，`yes | cmd` 可能因 SIGPIPE 导致整个 pipeline 非 0。
+          # 这里临时关闭 pipefail，确保以 sdkmanager 的退出码为准。
+          set +o pipefail
           yes | sdkmanager --licenses
+          set -o pipefail
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Setup Gradle cache
@@ -199,8 +204,8 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    # Safety gate: deploy only for opt-in manual runs on main.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.deploy == true || github.event.inputs.deploy == 'true')
+    # Safety gate: deploy only on pushes to main, or opt-in manual runs on main.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.deploy == true || github.event.inputs.deploy == 'true'))
     needs:
       - validate-deploy-connectivity
       - backend-ci
