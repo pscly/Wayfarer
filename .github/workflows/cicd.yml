@@ -118,6 +118,7 @@ jobs:
       - name: Fallback checkout (retry git fetch)
         if: steps.checkout.outcome != 'success'
         shell: bash
+        working-directory: .
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -201,6 +202,7 @@ jobs:
       - name: Fallback checkout (retry git fetch)
         if: steps.checkout.outcome != 'success'
         shell: bash
+        working-directory: .
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -262,6 +264,7 @@ jobs:
       - name: Fallback checkout (retry git fetch)
         if: steps.checkout.outcome != 'success'
         shell: bash
+        working-directory: .
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -340,6 +343,7 @@ jobs:
       - name: Fallback checkout (retry git fetch)
         if: steps.checkout.outcome != 'success'
         shell: bash
+        working-directory: .
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
