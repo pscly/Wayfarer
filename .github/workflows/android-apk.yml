@@ -121,7 +121,51 @@ jobs:
           echo "variant=$VARIANT"
 
           if [[ "$VARIANT" == "release" ]]; then
-            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > keystore.jks
+            # Secrets pasted via UI sometimes include quotes, literal "\n" escapes, or base64url chars.
+            # Normalize defensively so the same secret works across environments.
+            python3 - <<'PY'
+            import base64
+            import os
+            import re
+            import sys
+
+            s = os.environ.get("ANDROID_KEYSTORE_BASE64", "")
+            s = s.strip()
+
+            # Handle possible data URI prefix.
+            if "base64," in s:
+                s = s.split("base64,", 1)[1]
+
+            # Strip wrapping quotes.
+            if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+                s = s[1:-1]
+
+            # Convert literal escape sequences to actual separators (then stripped).
+            s = s.replace("\\n", "")
+            s = s.replace("\\r", "")
+
+            # Remove any remaining whitespace.
+            s = re.sub(r"\s+", "", s)
+
+            # base64url -> base64
+            s = s.replace("-", "+").replace("_", "/")
+
+            # Pad if needed.
+            s += "=" * ((4 - (len(s) % 4)) % 4)
+
+            try:
+                data = base64.b64decode(s, validate=False)
+            except Exception as e:
+                print(f"::error::Failed to decode ANDROID_KEYSTORE_BASE64: {e}")
+                sys.exit(1)
+
+            if not data:
+                print("::error::Decoded keystore.jks is empty. 请确认 ANDROID_KEYSTORE_BASE64 是 keystore 文件的 base64。")
+                sys.exit(1)
+
+            with open("keystore.jks", "wb") as f:
+                f.write(data)
+            PY
             chmod 600 keystore.jks
 
             if [[ ! -s keystore.jks ]]; then
